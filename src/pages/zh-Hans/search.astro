@@ -1,0 +1,16 @@
+---
+import BaseLayout from '#components/layouts/base.astro'
+import SearchPage from '#components/views/search-page.astro'
+import { useTranslations } from '#i18n/utils.ts'
+
+const locale = 'zh-Hans' as const
+const t = useTranslations(locale)
+---
+
+<BaseLayout
+  locale={locale}
+  title={t('meta.search.title')}
+  description={t('meta.search.description')}
+>
+  <SearchPage locale={locale} />
+</BaseLayout>
