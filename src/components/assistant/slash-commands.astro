@@ -1,0 +1,238 @@
+---
+import { Icon } from 'astro-icon/components'
+import { localAiModels } from '#data/ai-models.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+const commands = [
+  {
+    command: 'new',
+    label: t('assistant.newConversation'),
+    description: t('assistant.commands.newDescription'),
+  },
+  {
+    command: 'model',
+    label: t('assistant.modelPickerTitle'),
+    description: t('assistant.commands.modelDescription'),
+  },
+  {
+    command: 'sessions',
+    label: t('assistant.history'),
+    description: t('assistant.commands.sessionsDescription'),
+  },
+  {
+    command: 'help',
+    label: t('assistant.commands.help'),
+    description: t('assistant.commands.helpDescription'),
+  },
+] as const
+const models = localAiModels.map((model) => ({
+  id: model.id,
+  label: model.label,
+  meta: `${model.downloadSize} · ${model.gpuMemory} ${t('assistant.modelGpuMemory')}`,
+  recommended: model.recommended,
+}))
+const data = `slashCommands(${JSON.stringify({
+  commands,
+  models,
+  labels: {
+    commands: t('assistant.commands.label'),
+    models: t('assistant.modelPickerTitle'),
+    sessions: t('assistant.history'),
+    help: t('assistant.commands.help'),
+    helpHint: t('assistant.commands.hint'),
+    deleteSession: t('assistant.deleteConversation'),
+    noCommands: t('assistant.commands.noMatches'),
+    noSessions: t('assistant.commands.noSessions'),
+  },
+})})`
+---
+
+<div
+  class="contents"
+  x-data={data}
+  x-effect="syncDraft($store.ai.draft)"
+  x-on:go-slim:slash-keydown.window="handleKeydown($event)"
+  x-on:go-slim:slash-submit.window="handleSubmit()"
+  x-on:go-slim:slash-composition.window="handleComposition($event)"
+>
+  <section
+    x-cloak
+    x-show="open"
+    class="absolute inset-x-2 bottom-full z-50 mb-2 max-h-[min(24rem,calc(100svh-8rem))] overflow-y-auto rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-overlay"
+    :role="surface === 'sessions' ? 'dialog' : null"
+    :aria-label="surface === 'sessions' ? options.labels.sessions : null"
+    @click.outside="closeSurface(true)"
+    @keydown.escape="if (surface === 'sessions') { $event.stopPropagation(); $event.preventDefault(); closeSurface(false); focusComposer() }"
+  >
+    <header
+      x-show="surface === 'models' || surface === 'sessions'"
+      class="flex items-center gap-2 px-2 pb-2 pt-1"
+    >
+      <button
+        x-ref="back"
+        type="button"
+        class="inline-flex size-8 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
+        aria-label={t('assistant.commands.back')}
+        @click="surface = 'commands'; activeIndex = 0; syncTextboxA11y(); focusComposer()"
+      >
+        <Icon name="tabler:arrow-left" class="size-4" aria-hidden="true" />
+      </button>
+      <strong
+        class="text-sm"
+        x-text="surface === 'models' ? options.labels.models : surface === 'sessions' ? options.labels.sessions : options.labels.help"
+      ></strong>
+    </header>
+
+    <div
+      id="assistant-slash-options"
+      :role="surface === 'commands' || surface === 'models' ? 'listbox' : null"
+      :aria-label="surface === 'models' ? options.labels.models : surface === 'commands' ? options.labels.commands : null"
+    >
+      <template x-if="surface === 'commands'">
+        <div class="table w-full border-separate border-spacing-y-1">
+          <template x-for="(command, index) in filteredCommands" :key="command.command">
+            <div
+              :id="`assistant-slash-option-${index}`"
+              role="option"
+              :aria-selected="activeIndex === index"
+              :aria-disabled="commandDisabled(command.command)"
+              class="group table-row cursor-pointer text-left aria-disabled:cursor-not-allowed"
+              @mouseenter="activeIndex = index; syncTextboxA11y()"
+              @mousedown.prevent
+              @click="if (!commandDisabled(command.command)) executeCommand(command.command)"
+            >
+              <code
+                class="table-cell w-0 whitespace-nowrap rounded-s-lg py-2 ps-3 pe-4 align-top text-primary group-aria-selected:bg-muted group-aria-disabled:opacity-50"
+                x-text="`/${command.command}`"
+              ></code>
+              <span class="table-cell min-w-0 rounded-e-lg py-2 pe-3 align-top group-aria-selected:bg-muted group-aria-disabled:opacity-50">
+                <strong class="block text-sm" x-text="command.label"></strong>
+                <span class="block text-xs text-muted-foreground" x-text="command.description"></span>
+              </span>
+            </div>
+          </template>
+          <p
+            x-show="filteredCommands.length === 0"
+            class="px-3 py-4 text-center text-sm text-muted-foreground"
+            x-text="options.labels.noCommands"
+          ></p>
+        </div>
+      </template>
+
+      <template x-if="surface === 'models'">
+        <div>
+          <template x-for="(model, index) in options.models" :key="model.id">
+            <div
+              :id="`assistant-slash-option-${index}`"
+              role="option"
+              :aria-selected="activeIndex === index"
+              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 aria-selected:bg-muted"
+              @mouseenter="activeIndex = index; syncTextboxA11y()"
+              @mousedown.prevent
+              @click="selectModel(index)"
+            >
+              <Icon name="tabler:cpu" class="size-4 shrink-0" aria-hidden="true" />
+              <span class="min-w-0 flex-1">
+                <strong class="block truncate text-sm" x-text="model.label"></strong>
+                <span class="block text-xs text-muted-foreground" x-text="model.meta"></span>
+              </span>
+              <Icon
+                name="tabler:check"
+                class="size-4 shrink-0 text-primary"
+                x-show="$store.ai.selectedModelId === model.id"
+                aria-hidden="true"
+              />
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <template x-if="surface === 'sessions'">
+        <div
+          data-slash-sessions
+          @keydown="handleSessionKeydown($event)"
+        >
+          <ul role="list" class="space-y-1">
+            <template x-for="(conversation, index) in $store.ai.conversations" :key="conversation.id">
+              <li
+                class="group flex min-h-11 items-stretch overflow-hidden rounded-lg hover:bg-muted focus-within:bg-muted focus-within:ring-3 focus-within:ring-inset focus-within:ring-outline/50"
+              >
+                <button
+                  type="button"
+                  data-session-open
+                  class="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left outline-none"
+                  :tabindex="activeIndex === index ? 0 : -1"
+                  @focus="activeIndex = index"
+                  @click="selectSession(index)"
+                >
+                  <Icon name="tabler:message-circle" class="size-4 shrink-0" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate text-sm" x-text="conversation.title"></span>
+                </button>
+                <button
+                  type="button"
+                  class="flex size-11 shrink-0 items-center justify-center text-muted-foreground outline-none transition-colors hover:text-error focus-visible:text-error"
+                  :tabindex="activeIndex === index ? 0 : -1"
+                  :aria-label="`${options.labels.deleteSession}: ${conversation.title}`"
+                  @focus="activeIndex = index"
+                  @click.stop="removeSession(conversation.id, index)"
+                >
+                  <Icon name="tabler:trash" class="size-4" aria-hidden="true" />
+                </button>
+              </li>
+            </template>
+          </ul>
+          <p
+            x-show="$store.ai.conversations.length === 0"
+            role="status"
+            class="px-3 py-4 text-center text-sm text-muted-foreground"
+            x-text="options.labels.noSessions"
+          ></p>
+        </div>
+      </template>
+
+      <template x-if="surface === 'help'">
+        <section
+          id="assistant-slash-help"
+          class="px-2 pb-1"
+          :aria-label="options.labels.help"
+        >
+          <header class="px-1 pb-2 pt-1">
+            <strong class="block text-sm" x-text="options.labels.help"></strong>
+            <p
+              class="mt-0.5 text-xs text-muted-foreground"
+              x-text="options.labels.helpHint"
+            ></p>
+          </header>
+          <dl class="table w-full border-separate border-spacing-y-1">
+            <template x-for="command in options.commands" :key="command.command">
+              <div class="table-row">
+                <dt class="table-cell w-0 whitespace-nowrap py-2 pe-4 align-top">
+                  <code
+                    class="text-primary"
+                    x-text="`/${command.command}`"
+                  ></code>
+                </dt>
+                <dd
+                  class="table-cell py-2 align-top text-xs leading-relaxed text-muted-foreground"
+                  x-text="command.description"
+                ></dd>
+              </div>
+            </template>
+          </dl>
+        </section>
+      </template>
+    </div>
+  </section>
+
+  <span class="sr-only" aria-live="polite">
+    <span x-show="surface === 'commands'" x-text="`${filteredCommands.length} ${options.labels.commands}`"></span>
+    <span x-show="surface === 'help'" x-text="options.labels.help"></span>
+  </span>
+</div>

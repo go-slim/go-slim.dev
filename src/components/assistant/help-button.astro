@@ -1,0 +1,88 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+const commands = [
+  ['/new', t('assistant.commands.newDescription')],
+  ['/model', t('assistant.commands.modelDescription')],
+  ['/sessions', t('assistant.commands.sessionsDescription')],
+  ['/help', t('assistant.commands.helpDescription')],
+] as const
+---
+
+<div
+  class="relative ms-auto"
+  x-data="{
+    open: false,
+    closeHelp(event) {
+      if (!this.open) return
+      event?.preventDefault()
+      event?.stopPropagation()
+      this.open = false
+      this.$nextTick(() => this.$refs.trigger.focus())
+    },
+    insert(command) {
+      $store.ai.draft = command
+      $store.ai.schedulePersistence()
+      this.open = false
+      $nextTick(() => window.dispatchEvent(new Event('go-slim-composer-focus')))
+    },
+  }"
+  x-id="['assistant-help']"
+  @keydown.escape="closeHelp($event)"
+>
+  <Button
+    x-ref="trigger"
+    type="button"
+    size="icon-sm"
+    variant="ghost"
+    :aria-expanded="open"
+    :aria-controls="$id('assistant-help')"
+    aria-haspopup="dialog"
+    aria-label={t('assistant.commands.label')}
+    @click="open = !open"
+  >
+    <Icon name="tabler:help-circle" class="size-5" aria-hidden="true" />
+  </Button>
+
+  <section
+    x-cloak
+    x-show="open"
+    :id="$id('assistant-help')"
+    role="dialog"
+    aria-label={t('assistant.commands.label')}
+    class="absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-overlay"
+    @click.outside="open = false"
+  >
+    <header class="px-3 pb-2 pt-1">
+      <strong class="text-sm">{t('assistant.commands.help')}</strong>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        {t('assistant.commands.hint')}
+      </p>
+    </header>
+    <ul class="grid gap-1">
+      {commands.map(([command, description]) => (
+        <li>
+          <button
+            type="button"
+            class="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
+            @click={`insert(${JSON.stringify(command)})`}
+          >
+            <code class="shrink-0 text-primary">{command}</code>
+            <span class="text-xs leading-relaxed text-muted-foreground">
+              {description}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  </section>
+</div>

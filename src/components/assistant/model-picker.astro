@@ -1,0 +1,132 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import { localAiModels } from '#data/ai-models.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+  class?: HTMLAttributes<'div'>['class']
+}
+
+const { locale, class: className } = Astro.props
+const t = useTranslations(locale)
+const labels = Object.fromEntries(
+  localAiModels.map(({ id, label }) => [id, label]),
+)
+const pickerData = `{
+  open: false,
+  labels: ${JSON.stringify(labels)},
+  get disabled() {
+    return $store.ai.generating ||
+      $store.ai.awaitingModelQuestionId !== null ||
+      $store.ai.persistenceState === 'loading'
+  },
+  get label() {
+    return this.labels[$store.ai.selectedModelId] ?? ${JSON.stringify(t('assistant.modelPickerPlaceholder'))}
+  },
+  openPicker() {
+    if (this.disabled) return
+    this.open = true
+    $nextTick(() => {
+      const selected = $refs.options.querySelector('input:checked')
+      const first = $refs.options.querySelector('input:not(:disabled)')
+      ;(selected ?? first)?.focus()
+    })
+  },
+  closePicker(restoreFocus = false) {
+    this.open = false
+    if (restoreFocus) $nextTick(() => $refs.trigger.focus())
+  },
+  choose(modelId) {
+    $store.ai.switchConversationModel(modelId)
+    this.closePicker(true)
+  },
+}`
+---
+
+<div
+  class:list={['contents', className]}
+  x-data={pickerData}
+  x-id="['assistant-model-trigger', 'assistant-model-options']"
+  x-effect="if (disabled && open) closePicker()"
+  @keydown.escape.stop.prevent="if (open) closePicker(true)"
+>
+  <Button
+    x-ref="trigger"
+    type="button"
+    variant="ghost"
+    size="icon-sm"
+    class="ms-auto select-none aria-expanded:bg-accent"
+    :id="$id('assistant-model-trigger')"
+    :aria-controls="$id('assistant-model-options')"
+    :aria-expanded="open"
+    :disabled="disabled"
+    aria-haspopup="dialog"
+    @click="open ? closePicker() : openPicker()"
+    @keydown.arrow-up.prevent="openPicker()"
+    @keydown.arrow-down.prevent="openPicker()"
+  >
+    <Icon name="tabler:cpu" class="size-5" aria-hidden="true" />
+    <span class="sr-only">
+      {t('assistant.modelPickerTitle')}:
+      <span x-text="label">{t('assistant.modelPickerPlaceholder')}</span>
+    </span>
+  </Button>
+
+  <section
+    x-ref="options"
+    x-show="open"
+    x-cloak
+    :id="$id('assistant-model-options')"
+    :aria-labelledby="$id('assistant-model-trigger')"
+    role="dialog"
+    class="absolute right-0 top-full z-50 mt-2 w-[min(21rem,calc(100vw-2rem))] rounded-lg border border-border bg-popover p-3 shadow-overlay"
+    @click.outside="closePicker()"
+  >
+    <fieldset :disabled="disabled">
+      <legend class="font-semibold">
+        {t('assistant.modelPickerTitle')}
+      </legend>
+      <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+        {t('assistant.modelPickerDescription')}
+      </p>
+      <div class="mt-3 grid gap-1">
+        {localAiModels.map((model) => (
+          <label class="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-muted has-focus-visible:ring-3 has-focus-visible:ring-outline/50">
+            <input
+              type="radio"
+              :name="$id('assistant-model-options')"
+              value={model.id}
+              :checked={`$store.ai.selectedModelId === ${JSON.stringify(model.id)}`}
+              class="peer sr-only"
+              @change={`choose(${JSON.stringify(model.id)})`}
+            />
+            <span class="min-w-0 flex-1">
+              <span class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{model.label}</span>
+                {model.recommended && (
+                  <span class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] text-primary">
+                    {t('assistant.modelRecommended')}
+                  </span>
+                )}
+              </span>
+              <span class="mt-0.5 block text-xs text-muted-foreground">
+                {model.downloadSize}
+                <span aria-hidden="true"> · </span>
+                {model.gpuMemory} {t('assistant.modelGpuMemory')}
+              </span>
+            </span>
+            <Icon
+              name="tabler:check"
+              class="size-4 shrink-0 text-primary opacity-0 peer-checked:opacity-100"
+              aria-hidden="true"
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  </section>
+</div>

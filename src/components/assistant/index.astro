@@ -1,0 +1,83 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import ScrollArea from '#components/ui/scrollarea/index.astro'
+import AiComposer from './composer.astro'
+import AiToolbar from './toolbar.astro'
+import AiConversation from './conversation.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = HTMLAttributes<'aside'> & {
+  locale: ContentLocale
+}
+
+const { class: className, locale, ...rest } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div
+  x-data
+  x-cloak
+  x-show="$store.ai.panelOpen"
+  x-transition:enter="transition-opacity duration-200 ease-out motion-reduce:transition-none"
+  x-transition:enter-start="opacity-0"
+  x-transition:enter-end="opacity-100"
+  x-transition:leave="transition-opacity duration-150 ease-in motion-reduce:transition-none"
+  x-transition:leave-start="opacity-100"
+  x-transition:leave-end="opacity-0"
+  class="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs lg:hidden"
+  aria-hidden="true"
+  @click="$store.ai.closePanel()"
+></div>
+
+<aside
+  id="assistant-panel"
+  x-data="assistantPanel"
+  x-ref="panel"
+  x-cloak
+  tabindex="-1"
+  aria-labelledby="assistant-panel-title"
+  x-bind:role="mobile ? 'dialog' : null"
+  x-bind:aria-modal="mobile && $store.ai.panelOpen ? 'true' : null"
+  x-bind:aria-hidden="!$store.ai.panelOpen"
+  x-bind:inert="!$store.ai.panelOpen"
+  x-effect="syncPanel($store.ai.panelOpen)"
+  x-bind:class="$store.ai.panelOpen
+    ? 'translate-x-0 opacity-100 lg:w-96 lg:border-l'
+    : 'pointer-events-none translate-x-full opacity-0 lg:w-0 lg:translate-x-0 lg:border-l-0'"
+  @keydown.escape.window="handleEscape($event)"
+  @keydown.tab="trapFocus($event)"
+  class:list={[
+    'overflow-hidden border-border bg-background',
+    'transition-[width,translate,opacity] duration-200 ease-out motion-reduce:transition-none',
+    className,
+  ]}
+  {...rest}
+>
+  <div class="@container/ai flex h-full w-full flex-col bg-background lg:w-96 lg:min-w-96">
+    <header class="px-4 pe-2.5 border-b border-border h-18 shrink-0 flex items-center">
+      <AiToolbar locale={locale} />
+    </header>
+    <ScrollArea followEnd class="flex-1" viewportClass="p-4">
+      <AiConversation locale={locale} />
+      <Button
+        slot="overlay"
+        x-cloak
+        x-show="hasUnseen"
+        type="button"
+        variant="outline"
+        size="sm"
+        class="absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-full bg-background shadow-md"
+        @click="scrollToEnd()"
+      >
+        <Icon name="tabler:arrow-down" class="size-4" aria-hidden="true" />
+        {t('assistant.jumpToLatest')}
+      </Button>
+    </ScrollArea>
+    <footer class="border-t border-border shrink-0">
+      <AiComposer locale={locale} />
+    </footer>
+  </div>
+</aside>

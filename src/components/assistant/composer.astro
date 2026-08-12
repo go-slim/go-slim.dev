@@ -1,0 +1,97 @@
+---
+import { Icon } from 'astro-icon/components'
+import Checkbox from '#components/ui/checkbox/index.astro'
+import Button from '#components/ui/button/index.astro'
+import ScrollArea from '#components/ui/scrollarea/index.astro'
+import SlashCommands from './slash-commands.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<form
+  class="relative grid"
+  x-data="{
+    resizeInput(input) {
+      if (!(input instanceof HTMLTextAreaElement)) return
+
+      const scrollArea = input.closest('[data-ai-composer-scrollarea]')
+      const minimumHeight = 64
+      const maximumHeight = 192
+
+      input.style.height = '0px'
+      const contentHeight = Math.max(minimumHeight, input.scrollHeight)
+      input.style.height = `${contentHeight}px`
+
+      if (scrollArea instanceof HTMLElement) {
+        scrollArea.style.height = `${Math.min(contentHeight, maximumHeight)}px`
+      }
+    },
+  }"
+  @submit.prevent="$dispatch('go-slim:slash-submit')"
+>
+  <SlashCommands locale={locale} />
+  <ScrollArea
+    data-ai-composer-scrollarea
+    layout="flow"
+    class="min-h-16 max-h-48"
+    scrollbarClass="my-1"
+    viewportTabindex={-1}
+  >
+    <textarea
+      rows="1"
+      maxlength="4000"
+      name="message"
+      class="block min-h-16 w-full resize-none appearance-none overflow-hidden p-4 pb-0 outline-hidden"
+      placeholder={t('assistant.placeholder')}
+      x-model="$store.ai.draft"
+      @input="resizeInput($el); $store.ai.schedulePersistence()"
+      @keydown="$dispatch('go-slim:slash-keydown', { event: $event })"
+      @compositionstart="$dispatch('go-slim:slash-composition', { composing: true })"
+      @compositionend="$dispatch('go-slim:slash-composition', { composing: false })"
+      @go-slim-composer-focus.window="$el.focus()"
+      x-effect="
+        $store.ai.draft
+        $nextTick(() => resizeInput($el))
+      "
+    ></textarea>
+  </ScrollArea>
+  <div class="flex items-center justify-between gap-2 px-4 py-2">
+    <Checkbox
+      name="send-on-enter"
+      x-model="$store.ai.sendOnEnter"
+      @change="$store.ai.schedulePersistence()"
+    >
+      {t('assistant.sendOnEnter')}
+    </Checkbox>
+    <div class="ms-auto flex min-w-0 items-center gap-2">
+      <Button
+        x-show="!$store.ai.generating"
+        type="submit"
+        size="icon-sm"
+        class="rounded-full bg-primary text-primary-foreground"
+        :disabled="!$store.ai.canSend"
+      >
+        <Icon name="tabler:arrow-up" class="size-5" aria-hidden="true" />
+        <span class="sr-only">{t('assistant.send')}</span>
+      </Button>
+      <Button
+        x-show="$store.ai.generating"
+        x-cloak
+        type="button"
+        size="icon-sm"
+        class="rounded-full bg-primary text-primary-foreground"
+        aria-label={t('assistant.stop')}
+        @click="$store.ai.stop()"
+      >
+        <Icon name="tabler:square-filled" class="size-3" aria-hidden="true" />
+      </Button>
+    </div>
+  </div>
+</form>

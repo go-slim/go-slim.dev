@@ -1,0 +1,32 @@
+---
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  message: string
+  locale: ContentLocale
+}
+
+const { message, locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div class="not-first:pt-12" x-data="{replies: []}">
+  <section>
+    <h4 class="sr-only select-none">{t('assistant.youSaid')}</h4>
+    <div data-message-author-role="user" class="flex justify-end ps-[25%]">
+      <p class="bg-muted py-2.5 px-3 rounded-xl rounded-br-md wrap-break-word">
+        {message}
+      </p>
+    </div>
+  </section>
+
+  <template x-for="reply in replies" :key="reply">
+    <section>
+      <h4 class="sr-only select-none">{t('assistant.aiSaid')}</h4>
+      <div data-message-author-role="assistant" class="flex justify-start pe-[25%] pt-12">
+        <div class="assistant-markdown" x-markdown="reply" />
+      </div>
+    </section>
+  </template>
+</div>

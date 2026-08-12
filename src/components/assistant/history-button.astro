@@ -1,0 +1,74 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  class?: string
+  locale: ContentLocale
+}
+
+const { class: className, locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div
+  class:list={["inline-block relative", className]}
+  x-data="{
+    open: false,
+  }"
+  x-id="['assistant-history']"
+>
+  <Button
+    x-ref="trigger"
+    x-cloak
+    x-show="$store.ai.conversations.length > 0"
+    size="icon-sm"
+    variant="ghost"
+    class="ml-auto"
+    x-bind:class="{'bg-accent':open}"
+    :aria-expanded="open"
+    :aria-controls="$id('assistant-history')"
+    aria-haspopup="dialog"
+    aria-label={t('assistant.history')}
+    @click="open = !open"
+  >
+    <Icon name="tabler:dots-vertical" class="size-5" aria-hidden="true" />
+  </Button>
+  <div
+    x-cloak
+    x-show="open && $store.ai.conversations.length > 0"
+    :id="$id('assistant-history')"
+    role="dialog"
+    aria-label={t('assistant.history')}
+    class="z-100 absolute top-full right-0 max-h-[min(24rem,calc(100svh-6rem))] max-w-64 min-w-48 translate-y-2 origin-top-right overflow-y-auto rounded-xl border bg-popover p-2 text-popover-foreground shadow-lg"
+    @click.outside="open = false"
+    @keydown.escape.window="if (open) { open = false; $nextTick(() => $refs.trigger.focus()) }"
+  >
+    <ul>
+      <template
+        x-for="conversation in $store.ai.conversations"
+        :key="conversation.id"
+      >
+        <li class="group relative rounded-lg overflow-hidden flex hover:bg-accent">
+          <button
+            type="button"
+            class="flex-1 truncate px-3 py-2 text-sm group-hover:pe-0 text-left"
+            @click="$store.ai.openConversation(conversation.id); open = false"
+          >
+            <span x-text="conversation.title"></span>
+          </button>
+          <button
+            type="button"
+            class="flex size-9 shrink-0 items-center justify-center text-muted-foreground hover:text-primary-accent"
+            aria-label={t('assistant.deleteConversation')}
+            @click.stop="$store.ai.removeConversation(conversation.id); if ($store.ai.conversations.length === 0) { open = false; $nextTick(() => document.querySelector('[data-assistant-new-conversation]')?.focus()) }"
+          >
+            <Icon name="tabler:trash" class="size-4" aria-hidden="true" />
+          </button>
+        </li>
+      </template>
+    </ul>
+  </div>
+</div>

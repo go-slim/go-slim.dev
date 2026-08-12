@@ -1,0 +1,32 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  class?: string
+  label?: string
+  locale: ContentLocale
+}
+
+const { class: className, locale, label } = Astro.props
+const t = useTranslations(locale)
+---
+
+<Button
+  variant="ghost"
+  size="icon-sm"
+  class:list={["aria-expanded:bg-accent", className]}
+  aria-controls="assistant-panel"
+  :aria-expanded="$store.ai.panelOpen"
+  @click="$store.ai.togglePanel()"
+>
+  <Icon
+    is:inline
+    name="hugeicons:ai-chat-02"
+    class="size-5 **:stroke-2"
+    aria-hidden="true"
+  />
+  <span class="sr-only">{label ?? t('assistant.label')}</span>
+</Button>

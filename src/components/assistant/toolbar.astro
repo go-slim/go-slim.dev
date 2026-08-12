@@ -1,0 +1,30 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import HelpButton from './help-button.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div class="relative flex h-full w-full items-center">
+  <span id="assistant-panel-title" class="ms-2 min-w-0 truncate">{t('assistant.title')}</span>
+  <HelpButton locale={locale} />
+  <div class="h-4 w-px bg-border shrink-0 mx-2" />
+  <Button
+    data-assistant-close
+    size="icon-sm"
+    variant="ghost"
+    aria-label={t('assistant.collapse')}
+    aria-controls="assistant-panel"
+    @click="$store.ai.closePanel()"
+  >
+    <Icon name="tabler:layout-sidebar-right-collapse" class="size-5" aria-hidden="true" />
+  </Button>
+</div>

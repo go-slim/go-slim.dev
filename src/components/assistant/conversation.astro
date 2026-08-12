@@ -1,0 +1,109 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import ModelDownload from './model-download.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div
+  class="sr-only"
+  role="status"
+  aria-live="polite"
+  aria-atomic="true"
+  x-text="$store.ai.announcement"
+></div>
+
+<div
+  role="log"
+  aria-live="off"
+  aria-relevant="additions"
+  :aria-busy="$store.ai.generating"
+  aria-label={t('assistant.conversationLog')}
+>
+  <p
+    x-show="$store.ai.questions.length === 0"
+    class="py-8 text-center text-sm text-muted-foreground"
+  >
+    {t('assistant.empty')}
+  </p>
+
+  <template x-for="question in $store.ai.questions" :key="question.id">
+    <article class="not-first:pt-12">
+      <section>
+        <h3 class="sr-only select-none">{t('assistant.youSaid')}</h3>
+        <div data-message-author-role="user" class="flex justify-end ps-[25%]">
+          <p
+            class="wrap-break-word rounded-xl rounded-br-md bg-muted px-3 py-2.5 whitespace-pre-wrap"
+            x-text="question.message"
+          ></p>
+        </div>
+      </section>
+
+      <template x-for="reply in question.replies" :key="reply.id">
+        <section class="pt-12">
+          <h3 class="sr-only select-none">{t('assistant.aiSaid')}</h3>
+          <div
+            data-message-author-role="assistant"
+            class="flex flex-col items-start"
+            :class="reply.status === 'model-selection' ? 'pe-0' : 'pe-[12.5%]'"
+          >
+            <div
+              x-show="reply.status === 'model-selection'"
+              class="w-full"
+            >
+              <ModelDownload locale={locale} />
+            </div>
+            <div
+              class="assistant-markdown"
+              x-show="reply.status !== 'model-selection'"
+              :class="reply.status === 'error' ? 'text-error' : ''"
+              :aria-busy="reply.status === 'thinking' || reply.status === 'streaming'"
+              x-markdown="reply.content"
+            ></div>
+            <div
+              x-show="reply.status !== 'model-selection' && reply.sources.length > 0"
+              class="mt-5 w-full border-t border-border pt-4 text-sm"
+            >
+              <h4 class="mb-2 font-semibold text-muted-foreground">
+                {t('assistant.sources')}
+              </h4>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="(source, sourceIndex) in reply.sources" :key="source.url">
+                  <a
+                    :href="source.url"
+                    class="inline-flex min-w-0 items-center gap-1.5 rounded-sm bg-muted px-3 py-2 text-primary transition-colors hover:bg-accent"
+                  >
+                    <span x-text="`[${sourceIndex + 1}]`"></span>
+                    <span class="max-w-48 truncate" x-text="source.section || source.title"></span>
+                  </a>
+                </template>
+              </div>
+            </div>
+            <div
+              x-show="reply.status === 'error' || reply.status === 'stopped'"
+              class="mt-3"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                @click="$store.ai.retry(question.id)"
+              >
+                <Icon name="tabler:refresh" class="size-4" aria-hidden="true" />
+                {t('assistant.retry')}
+              </Button>
+            </div>
+          </div>
+        </section>
+      </template>
+    </article>
+  </template>
+</div>
