@@ -1,0 +1,29 @@
+---
+import Kbd from "#components/ui/kbd/index.astro";
+import { useTranslations } from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div class="flex items-center gap-6 w-full [&_span]:opacity-75">
+  <span class="flex gap-1 items-center">
+    <Kbd icon="tabler:arrow-up" />
+    <Kbd icon="tabler:arrow-down" />
+    <span class="ms-1">{t('search.navigate')}</span>
+  </span>
+  <span class="flex gap-1 items-center">
+    <Kbd icon="tabler:corner-down-left" />
+    <span class="ms-1">{t('search.select')}</span>
+  </span>
+  <span class="flex gap-1 items-center">
+    <Kbd label="esc"/>
+    <span class="ms-1">{t('search.closeShortcut')}</span>
+  </span>
+  <slot />
+</div>

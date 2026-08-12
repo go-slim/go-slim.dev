@@ -1,0 +1,73 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+import Feedback from "./feedback.astro"
+import Result from "./result.astro"
+import AskAi from "./ask-ai.astro"
+
+type AlpineAttributes = {
+  [key: `x-${string}`]: string | boolean | undefined
+  [key: `@${string}`]: string | undefined
+  [key: `:${string}`]: string | undefined
+}
+
+type Props = Omit<HTMLAttributes<'div'>, 'class'> &
+  AlpineAttributes & {
+    locale: ContentLocale
+    class?: HTMLAttributes<'div'>['class']
+  }
+
+const {
+  locale,
+  class: className,
+  ...rest
+} = Astro.props;
+const t = useTranslations(locale)
+---
+
+<div
+  data-slot="body"
+  {...rest}
+  class:list={['min-h-full', className]}
+>
+  <Feedback
+    locale={locale}
+    type="no-query"
+    class="absolute inset-4"
+    x-show="searchStatus === 'idle'"
+  />
+  <Feedback
+    locale={locale}
+    type="loading"
+    class="absolute inset-4"
+    x-show="searchStatus === 'loading'"
+    x-cloak
+  />
+  <Feedback
+    locale={locale}
+    type="error"
+    class="absolute inset-4"
+    x-show="searchStatus === 'error'"
+    x-cloak
+  >
+    <span x-text="searchError">{t('search.unavailable')}</span>
+  </Feedback>
+  <AskAi
+    locale={locale}
+    x-show="searchStatus !== 'idle'"
+    x-cloak
+    @click="openAssistant()"
+  >
+    <span x-text="searchQuery"></span>
+  </AskAi>
+  <Feedback
+    locale={locale}
+    type="no-results"
+    x-show="searchStatus === 'empty'"
+    x-cloak
+  />
+  <div x-show="searchStatus === 'ready'" x-cloak>
+    <Result locale={locale} />
+  </div>
+</div>

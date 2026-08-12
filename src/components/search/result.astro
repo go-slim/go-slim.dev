@@ -1,0 +1,66 @@
+---
+import { Icon } from 'astro-icon/components'
+import { useTranslations } from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<ul class="space-y-8" role="list">
+  <template x-for="group in resultGroups" :key="group.id">
+    <li>
+      <h3 class="mb-2 font-medium" x-text="group.label">
+        {t('search.group')}
+      </h3>
+      <ul class="space-y-1" role="list">
+        <template x-for="result in group.items" :key="result.id">
+          <li>
+            <a
+              data-search-result
+              :href="result.url"
+              class="group flex min-h-14 items-center rounded-xs bg-card outline-hidden transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:ring-3 focus-visible:ring-outline/50"
+              @focus="activeResultIndex = getResultElements().indexOf($el)"
+              @mouseenter="activeResultIndex = getResultElements().indexOf($el)"
+              @keydown.arrow-down.prevent="focusResult(1)"
+              @keydown.arrow-up.prevent="focusResult(-1)"
+              @keydown.home.prevent="focusBoundaryResult()"
+              @keydown.end.prevent="focusBoundaryResult(true)"
+            >
+              <span class="flex size-14 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover:text-primary-accent group-focus-visible:text-primary-accent">
+                <Icon name="tabler:hash" class="size-5" aria-hidden="true" />
+              </span>
+              <span class="min-w-0 flex-1 py-2">
+                <strong class="block truncate font-medium" x-text="result.title"></strong>
+                <span
+                  class="mt-0.5 block truncate text-ai-sm text-muted-foreground"
+                  x-text="result.excerpt"
+                ></span>
+              </span>
+              <span class="flex size-14 shrink-0 items-center justify-center text-primary-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
+                <Icon name="tabler:corner-down-left" class="size-5" />
+              </span>
+            </a>
+          </li>
+        </template>
+      </ul>
+    </li>
+  </template>
+  <li
+    x-show="showViewAllResults"
+    x-cloak
+    class="mb-8 text-center text-sm"
+  >
+    <a
+      :href="viewAllResultsHref"
+      class="inline-flex min-h-11 items-center rounded-sm px-3 text-primary underline underline-offset-4 outline-hidden hover:no-underline focus-visible:ring-3 focus-visible:ring-outline/50"
+      x-text="viewAllResultsLabel"
+    >
+      {t('search.viewAllResults.other', { count: 0 })}
+    </a>
+  </li>
+</ul>

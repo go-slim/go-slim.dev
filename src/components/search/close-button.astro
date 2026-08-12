@@ -1,0 +1,26 @@
+---
+import { Icon } from "astro-icon/components";
+import Button from '#components/ui/button/index.astro'
+import { useTranslations } from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div class="flex w-14 shrink-0 justify-center">
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon-sm"
+    class="rounded-full"
+    aria-label={t('search.close')}
+    @click="closeDialog()"
+  >
+    <Icon name="tabler:x" class="size-5" aria-hidden="true" />
+  </Button>
+</div>

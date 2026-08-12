@@ -1,0 +1,55 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import { useTranslations } from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type AlpineAttributes = {
+  [key: `x-${string}`]: string | boolean | undefined
+  [key: `@${string}`]: string | undefined
+  [key: `:${string}`]: string | undefined
+}
+
+type Props = Omit<HTMLAttributes<'button'>, 'class' | 'type'> &
+  AlpineAttributes & {
+    locale: ContentLocale
+    class?: HTMLAttributes<'button'>['class']
+    label?: string
+    query?: string
+  }
+
+const props = Astro.props
+const t = useTranslations(props.locale)
+const {
+  locale: _locale,
+  class: className,
+  label = t('search.askAi'),
+  query = '',
+  ...rest
+} = props
+---
+
+<button
+  {...rest}
+  type="button"
+  class:list={[
+    'group mb-4 flex min-h-14 w-full items-center rounded-xs bg-card text-left',
+    'transition-colors hover:bg-primary/10 aria-selected:bg-primary/10',
+    'outline-hidden focus-visible:ring-3 focus-visible:ring-outline/50',
+    'disabled:pointer-events-none disabled:opacity-50',
+    className,
+  ]}
+>
+  <span class="flex size-14 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover:text-primary-accent">
+    <Icon name="hugeicons:ai-chat-02" class="size-5" aria-hidden="true" />
+  </span>
+  <span class="shrink-0 font-medium">{label}</span>
+  <span class="ms-4 min-w-0 flex-1 pe-2">
+    <span class="block truncate whitespace-nowrap">
+      <slot>{query}</slot>
+    </span>
+  </span>
+  <span class="flex size-14 shrink-0 items-center justify-center text-primary-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
+    <Icon name="tabler:corner-down-left" class="size-5" />
+  </span>
+</button>

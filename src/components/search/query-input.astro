@@ -1,0 +1,66 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from "astro-icon/components";
+import Button from "#components/ui/button/index.astro";
+import { useTranslations } from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type AlpineAttributes = {
+  [key: `x-${string}`]: string | boolean | undefined
+  [key: `@${string}`]: string | undefined
+  [key: `:${string}`]: string | undefined
+}
+
+type Props = Omit<HTMLAttributes<'form'>, 'class'> &
+  AlpineAttributes & {
+    locale: ContentLocale
+    class?: HTMLAttributes<'form'>['class']
+  }
+
+const {
+  locale,
+  class: className,
+  ...rest
+} = Astro.props;
+const t = useTranslations(locale)
+---
+
+<form
+  {...rest}
+  class:list={["relative h-9 flex items-center", className]}
+  @submit.prevent="submitSearch()"
+>
+  <div class="shrink-0 w-px h-4 bg-ai-border"></div>
+  <label class="group flex-1 flex h-full items-center cursor-text relative">
+    <span class="absolute w-14 inset-y-0 left-0 flex justify-center items-center text-muted-foreground transition-colors group-focus-within:text-primary-accent">
+      <Icon name="tabler:search" class="size-5" aria-hidden="true" />
+    </span>
+    <div class="w-full ps-14 pe-25.5">
+      <input
+        type="search"
+        aria-label={t('search.inputLabel')}
+        placeholder={t('search.placeholder')}
+        autocomplete="off"
+        x-model="searchQuery"
+        @input="queueSearch()"
+        @keydown.arrow-down.prevent="focusResult(1)"
+        @keydown.arrow-up.prevent="focusResult(-1)"
+        @keydown.home.prevent="focusBoundaryResult()"
+        @keydown.end.prevent="focusBoundaryResult(true)"
+        @go-slim-pagefind-focus.window="$el.focus()"
+        class="w-full appearance-none text-ai-lg outline-0 focus:outline-0 focus-visible:outline-0 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+      />
+    </div>
+    <span x-show="searchQuery" x-cloak class="absolute right-0 inset-y-0 flex items-center ps-4.5">
+      <Button
+        @click="clearSearch(); $nextTick(() => window.dispatchEvent(new Event('go-slim-pagefind-focus')))"
+        type="button"
+        class="p-0 h-7 rounded-none font-normal text-primary hover:bg-transparent hover:text-primary"
+        variant="ghost"
+      >
+        {t('search.clear')}
+      </Button>
+      <span class="inline-block w-px h-4 bg-border ms-4.5 pointer-events-none" aria-hidden="true" />
+    </span>
+  </label>
+</form>

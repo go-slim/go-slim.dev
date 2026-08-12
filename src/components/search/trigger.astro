@@ -1,0 +1,130 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import ScrollArea from '#components/ui/scrollarea/index.astro'
+import Footer from './footer.astro'
+import QueryInput from './query-input.astro'
+import Body from './body.astro'
+import CloseButton from './close-button.astro'
+import {
+  getTranslationTemplate,
+  useTranslations,
+} from '#i18n/utils.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+	locale: ContentLocale
+	class?: string
+	label?: string
+}
+
+const props = Astro.props
+const t = useTranslations(props.locale)
+const {
+  locale,
+  class: className,
+  label = t('search.open'),
+} = props
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '')
+const searchPath = `${basePath}${locale === 'zh-Hans' ? '/zh-Hans' : ''}/search`
+const searchDialogData = `searchDialog(${JSON.stringify({
+  locale,
+  searchPath,
+  viewAllResultsTemplates: {
+    one: getTranslationTemplate(locale, 'search.viewAllResults.one'),
+    other: getTranslationTemplate(locale, 'search.viewAllResults.other'),
+  },
+  unavailableMessage: t('search.unavailable'),
+  groupLabels: {
+    site: t('search.siteSearch'),
+    libraries: t('header.nav.libraries'),
+    blog: t('header.nav.blog'),
+    community: t('header.nav.community'),
+  },
+})})`
+---
+
+<span
+  x-data={searchDialogData}
+  @keydown.escape.window.prevent="if (dialogOpen) closeDialog()"
+>
+  <Button
+    x-ref="trigger"
+    variant="ghost"
+    size="icon-sm"
+    class={className}
+    aria-haspopup="dialog"
+    aria-controls="search-dialog"
+    :aria-expanded="dialogOpen"
+    @click="openDialog()"
+  >
+    <Icon name="tabler:search" class="size-5" aria-hidden="true" />
+    <span class="sr-only">{label}</span>
+  </Button>
+  <template x-teleport="body">
+    <dialog
+      id="search-dialog"
+      x-ref="dialog"
+      aria-labelledby="search-dialog-title"
+      class:list={[
+        "fixed m-0 overflow-hidden p-0 bg-ai text-ai-foreground text-ai-md",
+        "w-svw h-svh max-w-none max-h-none top-0 left-0",
+        "md:left-1/2 md:top-15 md:-translate-x-1/2 md:w-200 md:max-w-[calc(100vw-2rem)]",
+        "md:h-[min(40.25rem,calc(100dvh-5rem))]",
+        "md:border md:border-ai-border md:rounded-xl md:shadow-xl",
+        "md:backdrop:bg-ai-backdrop md:backdrop:backdrop-blur-xs",
+      ]}
+      @click.self="closeDialog()"
+      @cancel.prevent="closeDialog()"
+      @close="handleClose()"
+    >
+      <h2
+        id="search-dialog-title"
+        class="sr-only"
+      >
+        {t('search.title')}
+      </h2>
+
+      <div
+        class="relative flex h-full max-h-full w-full flex-col overflow-hidden rounded-xs @container-size"
+      >
+        <header class="sticky top-0 z-20 h-0">
+          <div class="relative h-14 border-b border-ai-border bg-card/90 backdrop-blur-xs">
+            <div class="flex h-full items-center">
+              <QueryInput locale={locale} class="flex-1" />
+              <CloseButton locale={locale} />
+            </div>
+          </div>
+        </header>
+
+        <ScrollArea
+          data-search-dialog-scrollarea
+          class="min-h-0 flex-1"
+          viewportClass="pt-14 pb-0 md:pb-13"
+          viewportLabel={t('search.regionLabel')}
+          contentClass="min-h-full"
+          scrollbarClass="top-14 bottom-0 md:bottom-13"
+        >
+          <Body
+            locale={locale}
+            x-cloak
+            class="p-2.5"
+          />
+        </ScrollArea>
+
+        <footer class="sticky bottom-0 z-20 h-0 select-none ">
+          <div
+            class="hidden md:flex h-13 -translate-y-full items-center gap-6 border-t border-ai-border bg-card/90 px-4 backdrop-blur-xs"
+          >
+            <Footer locale={locale}>
+              <span class="ml-auto flex items-center gap-1">
+                {t('search.siteSearch')}
+                <Icon name="tabler:database-search" class="size-4.5" aria-hidden="true" />
+              </span>
+            </Footer>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+  </template>
+</span>
