@@ -1,0 +1,51 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type MemberLinks = {
+  github?: string
+  twitter?: string
+  bluesky?: string
+  website?: string
+}
+
+type Props = {
+  links: MemberLinks
+  memberName: string
+  locale: ContentLocale
+  class?: string
+}
+
+const { links, memberName, locale, class: className } = Astro.props
+const t = useTranslations(locale)
+const items = [
+  links.github && { icon: 'tabler:brand-github', href: links.github, label: 'GitHub' },
+  links.twitter && { icon: 'tabler:brand-x', href: links.twitter, label: 'X' },
+  links.bluesky && { icon: 'tabler:brand-bluesky', href: links.bluesky, label: 'Bluesky' },
+  links.website && {
+    icon: 'tabler:world',
+    href: links.website,
+    label: t('maintainers.website'),
+  },
+].filter((item): item is { icon: string; href: string; label: string } => Boolean(item))
+---
+
+{items.length > 0 && (
+  <div class={className}>
+    {items.map((item) => (
+      <Button
+        href={item.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${memberName} ${item.label}`}
+        variant="ghost"
+        size="icon-sm"
+        class="rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <Icon name={item.icon} class="size-5" aria-hidden="true" />
+      </Button>
+    ))}
+  </div>
+)}

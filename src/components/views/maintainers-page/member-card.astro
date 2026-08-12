@@ -1,0 +1,110 @@
+---
+import type { ContentLocale } from '#lib/content-types.ts'
+import SocialLinks from './social-links.astro'
+
+type Localized<T> = T | Record<string, T>
+type Member = {
+  id: string
+  name: string
+  handle: string
+  avatar: string | null
+  title: Localized<string>
+  summary: Localized<string>
+  libraries: string[]
+  specialties: Localized<string[]>
+  links: {
+    github?: string
+    twitter?: string
+    bluesky?: string
+    website?: string
+  }
+}
+
+type Props = {
+  member: Member
+  toneClass: string
+  locale: ContentLocale
+}
+
+const { member, toneClass, locale } = Astro.props
+function localize<T>(value: Localized<T>, fallback: T): T {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return value as T
+  }
+
+  const translations = value as Record<string, T>
+  return translations[locale] ?? translations['en-US'] ?? fallback
+}
+const initials = member.name.slice(0, 2).toUpperCase()
+const title = localize(member.title, '')
+const summary = localize(member.summary, '')
+const tags = [
+  ...member.libraries,
+  ...localize<string[]>(member.specialties, []),
+].slice(0, 6)
+const profileHref = member.links.github ?? `https://github.com/${member.handle}`
+---
+
+<li
+  x-show={`isMemberVisible(${JSON.stringify(member.id)})`}
+  :style={`{ order: memberOrder(${JSON.stringify(member.id)}) }`}
+  class="relative overflow-hidden rounded-xl group-data-[view=compact]/directory:bg-card group-data-[view=compact]/directory:shadow-card group-data-[view=list]/directory:flex group-data-[view=list]/directory:items-center group-data-[view=list]/directory:gap-4 group-data-[view=list]/directory:border group-data-[view=list]/directory:border-border group-data-[view=list]/directory:bg-card group-data-[view=list]/directory:p-4"
+>
+  <a class="group" href={profileHref} target="_blank" rel="noopener noreferrer">
+    <div
+      class:list={[
+        'relative grid place-items-center overflow-hidden group-data-[view=compact]/directory:aspect-square group-data-[view=large]/directory:aspect-square group-data-[view=large]/directory:rounded-lg group-data-[view=list]/directory:size-16 group-data-[view=list]/directory:shrink-0 group-data-[view=list]/directory:rounded-lg',
+        toneClass,
+      ]}
+    >
+      <span class="text-3xl font-semibold opacity-40 group-data-[view=list]/directory:text-xl">
+        {initials}
+      </span>
+      {member.avatar && (
+        <img
+          src={member.avatar}
+          alt=""
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          class="absolute inset-0 size-full object-cover"
+        />
+      )}
+    </div>
+  </a>
+
+  <div class="group-data-[view=compact]/directory:absolute group-data-[view=compact]/directory:inset-x-0 group-data-[view=compact]/directory:bottom-0 group-data-[view=compact]/directory:bg-linear-to-t group-data-[view=compact]/directory:from-black/75 group-data-[view=compact]/directory:to-transparent group-data-[view=compact]/directory:p-3 group-data-[view=compact]/directory:pt-10 group-data-[view=large]/directory:mt-3 group-data-[view=list]/directory:min-w-0 group-data-[view=list]/directory:flex-1">
+    <div class="group-data-[view=list]/directory:flex group-data-[view=list]/directory:items-start group-data-[view=list]/directory:justify-between group-data-[view=list]/directory:gap-3">
+      <div class="min-w-0">
+        <h2 class="font-semibold group-data-[view=compact]/directory:text-white group-data-[view=large]/directory:font-mono group-data-[view=list]/directory:text-lg">
+          {member.name}
+        </h2>
+        <p class="hidden text-sm text-muted-foreground group-data-[view=list]/directory:block">
+          {title}
+        </p>
+        <p class="mt-1 hidden max-w-2xl text-sm text-muted-foreground group-data-[view=list]/directory:block">
+          {summary}
+        </p>
+      </div>
+      <SocialLinks
+        links={member.links}
+        memberName={member.name}
+        locale={locale}
+        class="hidden shrink-0 items-center gap-1 group-data-[view=list]/directory:flex"
+      />
+    </div>
+    <div class="hidden flex-wrap items-center gap-2 group-data-[view=list]/directory:mt-3 group-data-[view=list]/directory:flex">
+      {tags.map((tag) => (
+        <span class="rounded-full bg-muted px-2.5 py-1 font-mono text-xs">
+          {tag}
+        </span>
+      ))}
+    </div>
+  </div>
+
+  <SocialLinks
+    links={member.links}
+    memberName={member.name}
+    locale={locale}
+    class="mt-1 hidden items-center gap-1 group-data-[view=large]/directory:flex"
+  />
+</li>

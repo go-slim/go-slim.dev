@@ -1,0 +1,114 @@
+---
+import community from '#data/community-members.json'
+import { discordInviteUrl } from '#data/community-links.ts'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import DirectoryToolbar from './directory-toolbar.astro'
+import MemberCard from './member-card.astro'
+import {
+  getTranslationTemplate,
+  useTranslations,
+} from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const t = useTranslations(locale)
+const members = community.members
+const libraries = Array.from(
+  new Set(members.flatMap((member) => member.libraries)),
+).sort()
+const tone: Record<string, string> = {
+  brand: 'bg-primary/15 text-primary-accent',
+  info: 'bg-info/15 text-info',
+  success: 'bg-success/15 text-success',
+}
+const directoryOptions = {
+  locale,
+  countTemplate: getTranslationTemplate(locale, 'maintainers.memberCount'),
+  singularLabel: t('maintainers.person'),
+  pluralLabel: t('maintainers.people'),
+  members: members.map((member) => ({
+    id: member.id,
+    name: member.name,
+    level: member.level,
+    contributionWeight: member.contributionWeight,
+    libraries: member.libraries,
+  })),
+}
+---
+
+<main class="mx-auto max-w-page px-4 py-16 @[48rem]/app:px-6 @[64rem]/app:px-8 @[64rem]/app:py-24">
+  <header class="max-w-4xl">
+    <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+      {t('maintainers.eyebrow')}
+    </p>
+    <h1 id="maintainers-title" class="mt-4 text-page-title font-semibold tracking-display">
+      {t('maintainers.title')}
+    </h1>
+    <p class="mt-5 max-w-3xl text-lg leading-8 text-muted-foreground">
+      {t('maintainers.description')}
+    </p>
+  </header>
+
+  <section
+    aria-labelledby="maintainers-title"
+    class="group/directory mt-12"
+    data-view="compact"
+    x-data={`memberDirectory(${JSON.stringify(directoryOptions)})`}
+    :data-view="view"
+  >
+    <DirectoryToolbar locale={locale} libraries={libraries} />
+    <p class="mt-6 text-sm text-muted-foreground" x-text="countLabel">
+      {t('maintainers.memberCount', {
+        count: members.length,
+        unit: t('maintainers.people'),
+      })}
+    </p>
+    <ul
+      role="list"
+      class="mt-5 grid gap-4 group-data-[view=compact]/directory:grid-cols-[repeat(auto-fill,minmax(min(100%,9rem),11rem))] group-data-[view=large]/directory:gap-5 @[48rem]/app:group-data-[view=large]/directory:grid-cols-2 @[64rem]/app:group-data-[view=large]/directory:grid-cols-3 @[80rem]/app:group-data-[view=large]/directory:grid-cols-4"
+    >
+      {members.map((member) => (
+        <MemberCard
+          member={member}
+          toneClass={tone[member.tone] ?? tone.brand}
+          locale={locale}
+        />
+      ))}
+    </ul>
+    <p
+      class="mt-12 text-center text-muted-foreground"
+      x-cloak
+      x-show="filteredCount === 0"
+    >
+      {t('maintainers.noMatch')}
+    </p>
+  </section>
+
+  <div class="my-20 h-px bg-border" aria-hidden="true"></div>
+
+  <section class="rounded-xl border border-border bg-muted p-8 text-center">
+    <h2 class="text-2xl font-semibold">
+      {t('maintainers.contributeTitle')}
+    </h2>
+    <p class="mx-auto mt-3 max-w-2xl text-muted-foreground">
+      {t('maintainers.contributeDescription')}
+    </p>
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-4">
+      <Button href="https://github.com/go-slim" target="_blank" rel="noopener noreferrer">
+        {t('maintainers.viewGitHub')}
+      </Button>
+      <Button
+        href={discordInviteUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        variant="primary"
+      >
+        {t('maintainers.joinDiscord')}
+      </Button>
+    </div>
+  </section>
+</main>

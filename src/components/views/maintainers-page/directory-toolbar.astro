@@ -1,0 +1,115 @@
+---
+import { Icon } from 'astro-icon/components'
+import Checkbox from '#components/ui/checkbox/index.astro'
+import Select from '#components/ui/select/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+  libraries: readonly string[]
+}
+
+const { locale, libraries } = Astro.props
+const t = useTranslations(locale)
+const views = [
+  { value: 'compact', icon: 'tabler:grid-dots', label: t('maintainers.view.compact') },
+  { value: 'large', icon: 'tabler:layout-grid', label: t('maintainers.view.large') },
+  { value: 'list', icon: 'tabler:layout-list', label: t('maintainers.view.list') },
+] as const
+const groupOptions = [
+  { value: 'none', label: t('maintainers.group.none') },
+  { value: 'level', label: t('maintainers.group.level') },
+  { value: 'library', label: t('maintainers.group.library') },
+]
+const sortOptions = [
+  { value: 'none', label: t('maintainers.sort.none') },
+  { value: 'name', label: t('maintainers.sort.name') },
+  { value: 'level', label: t('maintainers.sort.level') },
+  { value: 'contributions', label: t('maintainers.sort.contributions') },
+]
+---
+
+<div class="flex flex-wrap items-start gap-3">
+  <div class="inline-flex overflow-hidden rounded-lg border border-border">
+    {views.map((view) => (
+      <button
+        type="button"
+        class="inline-flex size-9 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-active:bg-primary data-active:text-primary-foreground"
+        aria-label={view.label}
+        @click={`setView(${JSON.stringify(view.value)})`}
+        :data-active={`view === ${JSON.stringify(view.value)} ? '' : null`}
+        :aria-pressed={`view === ${JSON.stringify(view.value)}`}
+      >
+        <Icon is:inline name={view.icon} class="size-5" aria-hidden="true" />
+      </button>
+    ))}
+  </div>
+
+  <details
+    class="group relative"
+    @click.outside="$el.removeAttribute('open')"
+    @scroll.window="$el.removeAttribute('open')"
+  >
+    <summary class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-accent [&::-webkit-details-marker]:hidden">
+      <Icon name="tabler:adjustments-horizontal" class="size-4" aria-hidden="true" />
+      {t('maintainers.filterAndSort')}
+      <span
+        x-cloak
+        x-show="hasActiveFilters"
+        x-text="activeFilterCount"
+        class="inline-flex size-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground"
+      ></span>
+      <Icon name="tabler:chevron-down" class="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+    </summary>
+
+    <div class="absolute inset-s-0 top-full z-30 mt-2 grid w-[min(22rem,calc(100vw-2rem))] gap-5 rounded-lg border border-border bg-popover p-5 shadow-overlay">
+      <div>
+        <p class="mb-2 text-sm font-medium text-muted-foreground">
+          {t('maintainers.groupBy')}
+        </p>
+        <Select
+          options={groupOptions}
+          initialValue="none"
+          class="w-full"
+          triggerClass="w-full justify-between border border-border"
+          contentClass="w-full"
+          @select-change="setGroupBy($event.detail.value)"
+        />
+      </div>
+
+      <div>
+        <p class="mb-2 text-sm font-medium text-muted-foreground">
+          {t('maintainers.sortBy')}
+        </p>
+        <Select
+          options={sortOptions}
+          initialValue="none"
+          class="w-full"
+          triggerClass="w-full justify-between border border-border"
+          contentClass="w-full"
+          @select-change="setSortBy($event.detail.value)"
+        />
+      </div>
+
+      <fieldset>
+        <legend class="mb-2 text-sm font-medium text-muted-foreground">
+          {t('maintainers.filterLibraries')}
+        </legend>
+        <div class="grid grid-cols-2 gap-2">
+          {libraries.map((library) => (
+            <Checkbox
+              value={library}
+              class="rounded-sm px-2 py-2 hover:bg-accent"
+              labelClass="font-mono font-normal"
+              :checked={`selectedLibraries.includes(${JSON.stringify(library)})`}
+              @change={`setLibrary(${JSON.stringify(library)}, $event.currentTarget.checked)`}
+            >
+              {library}
+            </Checkbox>
+          ))}
+        </div>
+      </fieldset>
+    </div>
+  </details>
+</div>

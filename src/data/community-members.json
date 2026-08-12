@@ -1,0 +1,100 @@
+{
+  "members": [
+    {
+      "id": "maofeng",
+      "name": "Maofeng",
+      "handle": "maofeng",
+      "avatar": null,
+      "level": "core",
+      "role": "project-lead",
+      "title": {
+        "en-US": "Project maintainer",
+        "zh-Hans": "项目维护者"
+      },
+      "summary": {
+        "en-US": "Maintains the overall direction, library boundaries, releases, and documentation experience across go-slim.",
+        "zh-Hans": "负责 go-slim 的整体方向、类库边界、版本发布与文档体验。"
+      },
+      "libraries": ["h3", "binding", "middleware", "nego", "sdq", "misc", "tracing"],
+      "specialties": {
+        "en-US": ["Architecture", "Core API", "Documentation"],
+        "zh-Hans": ["架构", "核心 API", "文档"]
+      },
+      "links": {},
+      "contributionWeight": 100,
+      "tone": "brand"
+    },
+    {
+      "id": "tczkiot",
+      "name": "tczkiot",
+      "handle": "tczkiot",
+      "avatar": "https://github.com/tczkiot.png?size=640",
+      "level": "core",
+      "role": "project-lead",
+      "title": {
+        "en-US": "Core member",
+        "zh-Hans": "核心成员"
+      },
+      "summary": {
+        "en-US": "A core member helping shape the go-slim project and its libraries.",
+        "zh-Hans": "参与 go-slim 项目及类库建设的核心成员。"
+      },
+      "libraries": [],
+      "specialties": {
+        "en-US": [],
+        "zh-Hans": []
+      },
+      "links": { "github": "https://github.com/tczkiot" },
+      "contributionWeight": 70,
+      "tone": "brand"
+    },
+    {
+      "id": "hupeh",
+      "name": "hupeh",
+      "handle": "hupeh",
+      "avatar": "https://github.com/hupeh.png?size=640",
+      "level": "maintainer",
+      "role": "library-maintainer",
+      "title": {
+        "en-US": "Library maintainer",
+        "zh-Hans": "类库维护者"
+      },
+      "summary": {
+        "en-US": "Contributes to HTTP, queue, and utility packages with an emphasis on API clarity and implementation quality.",
+        "zh-Hans": "参与 HTTP、队列与工具类库，关注 API 清晰度与实现质量。"
+      },
+      "libraries": ["h3", "sdq", "misc"],
+      "specialties": {
+        "en-US": ["Core API", "Concurrency", "Testing"],
+        "zh-Hans": ["核心 API", "并发", "测试"]
+      },
+      "links": { "github": "https://github.com/hupeh" },
+      "contributionWeight": 80,
+      "tone": "info"
+    },
+    {
+      "id": "zestack",
+      "name": "zestack",
+      "handle": "zestack",
+      "avatar": "https://github.com/zestack.png?size=640",
+      "level": "contributor",
+      "role": "package-contributor",
+      "title": {
+        "en-US": "Package contributor",
+        "zh-Hans": "类库贡献者"
+      },
+      "summary": {
+        "en-US": "Contributes focused improvements to the shared utility packages and their supporting implementation.",
+        "zh-Hans": "为通用工具类库及其实现持续贡献小而明确的改进。"
+      },
+      "libraries": ["misc"],
+      "specialties": {
+        "en-US": ["Utilities", "Implementation"],
+        "zh-Hans": ["通用工具", "实现"]
+      },
+      "links": { "github": "https://github.com/zestack" },
+      "contributionWeight": 30,
+      "tone": "success"
+    }
+  ]
+}
