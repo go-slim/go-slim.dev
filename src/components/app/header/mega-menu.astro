@@ -1,0 +1,189 @@
+---
+import { Icon } from 'astro-icon/components'
+import type { MenuLink } from './navigation'
+import Item from '#components/ui/item/index.astro'
+import LibraryStatusBadge from '#components/ui/library-status-badge.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+  class?: string
+  links: readonly MenuLink[]
+  locale: ContentLocale
+}
+
+const {
+  class: className,
+  links,
+  locale,
+} = Astro.props
+
+const visibleLinks = links.filter((link) =>
+  link.kind === 'link' ||
+  link.more !== undefined ||
+  link.groups.some((group) => group.items.length > 0)
+)
+const triggerClass = [
+  'flex rounded-xs px-3 py-1.25',
+  'hover:bg-accent hover:text-primary',
+  'aria-expanded:bg-accent aria-expanded:text-accent-foreground',
+]
+const alpineString = (value: string): string => JSON.stringify(value)
+---
+
+<nav
+  class={className}
+  x-data="megaMenu"
+  x-effect="if (open !== null && appWidth < 1024) closeMenu()"
+  @mouseenter="cancelClose()"
+  @mouseleave="queueClose()"
+  @keydown.escape.window="closeMenu()"
+>
+  <ul class="flex gap-4 [&>li]:flex [&>li]:h-18 [&>li]:items-center [&>li]:justify-center">
+    {visibleLinks.map((link) => (
+      <li>
+        {link.kind === 'link' ? (
+          <a
+            href={link.href}
+            target={link.external ? '_blank' : undefined}
+            rel={link.external ? 'noopener noreferrer' : undefined}
+            class:list={triggerClass}
+            @mouseenter.stop="closeMenu()"
+            @focus="closeMenu()"
+          >
+            {link.title}
+          </a>
+        ) : (
+          <>
+            <button
+              type="button"
+              class:list={triggerClass}
+              aria-haspopup="true"
+              :aria-expanded={`open === ${alpineString(link.id)}`}
+              @mouseenter.stop={`openMenu(${alpineString(link.id)})`}
+              @focus={`openMenu(${alpineString(link.id)})`}
+              @click={`open === ${alpineString(link.id)} ? closeMenu() : openMenu(${alpineString(link.id)})`}
+            >
+              {link.title}
+            </button>
+            <div x-ref={`${link.id}Source`} class="hidden">
+              <div class="flex gap-4 p-10">
+                {link.groups
+                  .filter((group) => group.items.length > 0)
+                  .map((group) => (
+                    <div>
+                      <h3 class="mb-2 ms-4 text-xs capitalize text-muted-foreground">
+                        {group.title}
+                      </h3>
+                      <ul class="space-y-px">
+                        {group.items.map((item) => {
+                          const itemProps = item.href === undefined
+                            ? {}
+                            : {
+                                href: item.href,
+                                target: item.external ? '_blank' : undefined,
+                                rel: item.external ? 'noopener noreferrer' : undefined,
+                                external: item.external ? 'follow' as const : undefined,
+                              }
+
+                          return (
+                            <li>
+                              <Item
+                                {...itemProps}
+                                icon={{
+                                  name: item.icon,
+                                  class: 'size-8 text-muted-foreground group-hover:text-accent-foreground',
+                                }}
+                                title={item.title}
+                                subtitle={item.description}
+                                class:list={[
+                                  'min-w-48 max-w-72 gap-4 rounded-xs px-4 py-2',
+                                  item.href !== undefined && 'group cursor-pointer hover:bg-accent',
+                                ]}
+                                titleClass="text-lg"
+                                subtitleClass="block truncate text-xs text-muted-foreground"
+                              >
+                                {item.status !== undefined && (
+                                  <LibraryStatusBadge
+                                    slot="meta"
+                                    status={item.status}
+                                    locale={locale}
+                                    aria-hidden="true"
+                                  />
+                                )}
+                              </Item>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+              </div>
+              {link.more !== undefined && (
+                <div class="border-t py-4 text-center">
+                  <a
+                    href={link.more.href}
+                    target={link.more.external ? '_blank' : undefined}
+                    rel={link.more.external ? 'noopener noreferrer' : undefined}
+                    class="inline-flex items-center gap-2 rounded-xs px-3 py-1.25 hover:bg-accent hover:text-primary"
+                  >
+                    <Icon
+                      is:inline
+                      name={link.more.icon}
+                      aria-hidden="true"
+                    />
+                    <span>{link.more.title}</span>
+                    <Icon
+                      is:inline
+                      name={link.more.external ? 'tabler:external-link' : 'tabler:arrow-right'}
+                      aria-hidden="true"
+                    />
+                  </a>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </li>
+    ))}
+  </ul>
+  <template x-teleport="body">
+    <div
+      x-bind:style="{
+        '--assistant-offset': $store.ai.panelOpen ? '24rem' : '0rem',
+      }"
+      class="pointer-events-none fixed bottom-0 left-0 right-0 top-18 z-50 hidden overflow-hidden transition-[right] duration-200 ease-out motion-reduce:transition-none lg:right-(--assistant-offset) lg:block"
+    >
+      <div
+        :class="open != null && 'pointer-events-auto'"
+        class="z-1 relative mx-auto w-fit pt-4"
+        @mouseenter="cancelClose()"
+        @mouseleave="closeMenu()"
+      >
+        <div class="w-fit" @mouseleave="closeMenu()">
+          <div
+            x-show="open != null"
+            x-transition:enter="transition-transform ease-out duration-200 motion-reduce:transition-none"
+            x-transition:enter-start="-translate-y-4"
+            x-transition:enter-end="translate-y-0"
+            x-transition:leave="transition-transform ease-in duration-150 motion-reduce:transition-none"
+            x-transition:leave-start="translate-y-0"
+            x-transition:leave-end="-translate-y-4"
+            class="min-w-80 rounded-xs bg-card"
+          >
+            <div x-effect="renderMenu(open, $refs, $el)"/>
+          </div>
+        </div>
+      </div>
+      <div
+        x-show="open != null"
+        x-transition:enter="transition-opacity ease-out duration-200 motion-reduce:transition-none"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition-opacity ease-in duration-150 motion-reduce:transition-none"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="absolute inset-0 z-0 bg-black/35 backdrop-blur-xs"
+      />
+    </div>
+  </template>
+</nav>

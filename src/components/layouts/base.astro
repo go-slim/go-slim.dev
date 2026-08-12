@@ -1,0 +1,95 @@
+---
+import '#styles/global.css'
+import App from '#components/app/index.astro'
+import Assistant from '#components/assistant/index.astro'
+import { createNavigationLinks } from '#components/app/header/navigation.ts'
+import { getLibraryNavigation } from '#lib/content.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+  title: string
+  description?: string
+  notFooter?: boolean
+}
+
+const {
+  locale,
+  title,
+  description,
+  notFooter = false,
+} = Astro.props
+const t = useTranslations(locale)
+const pageDescription = description ?? t('meta.defaultDescription')
+const links = createNavigationLinks(locale, await getLibraryNavigation(locale))
+const faviconBase = import.meta.env.BASE_URL
+const faviconPaths = {
+  fallback: `${faviconBase}favicon.svg`,
+  light: `${faviconBase}favicon-light.svg`,
+  dark: `${faviconBase}favicon-dark.svg`,
+}
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={pageDescription} />
+    <meta name="generator" content={Astro.generator} />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href={faviconPaths.fallback}
+      data-theme-favicon
+      data-light-href={faviconPaths.light}
+      data-dark-href={faviconPaths.dark}
+    />
+    <script is:inline>
+      (() => {
+        const validThemes = new Set(['system', 'light', 'dark'])
+        let theme = 'system'
+
+        try {
+          const storedTheme = localStorage.getItem('theme')
+          if (validThemes.has(storedTheme)) theme = storedTheme
+        } catch {
+          // Use the system theme when storage is unavailable.
+        }
+
+        const systemDark = matchMedia('(prefers-color-scheme: dark)').matches
+        const dark = theme === 'dark' || (theme === 'system' && systemDark)
+
+        document.documentElement.dataset.theme = theme
+        document.documentElement.classList.toggle('dark', dark)
+
+        const favicon = document.querySelector('link[data-theme-favicon]')
+        if (favicon instanceof HTMLLinkElement) {
+          const href = systemDark
+            ? favicon.dataset.darkHref
+            : favicon.dataset.lightHref
+
+          if (href) favicon.setAttribute('href', href)
+        }
+      })()
+    </script>
+    <title>{title}</title>
+  </head>
+  <body>
+    <div class="flex min-h-svh w-full items-start">
+      <App
+        class="min-w-0 flex-1"
+        locale={locale}
+        links={links}
+        notFooter={notFooter}
+      >
+        <slot />
+      </App>
+      <Assistant
+        locale={locale}
+        class="fixed inset-y-0 right-0 z-70 h-svh w-full max-w-96 shrink-0 lg:sticky lg:top-0 lg:max-w-none"
+      />
+    </div>
+  </body>
+</html>

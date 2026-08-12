@@ -1,0 +1,21 @@
+---
+import type { ContentLocale } from '#lib/content-types.ts'
+import Footer from '#components/ui/footer/index.astro'
+import { getAppFooterContent } from './content.ts'
+
+type Props = {
+  class?: string
+  locale: ContentLocale
+}
+
+const {
+  class: className = '',
+  locale,
+} = Astro.props
+const content = getAppFooterContent(locale)
+---
+
+<Footer
+  {...content}
+  class={className}
+/>

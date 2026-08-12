@@ -1,0 +1,39 @@
+---
+import Header from './header/index.astro'
+import Footer from './footer/index.astro'
+import type { MenuLink } from './header/navigation'
+import type { ContentLocale } from '#lib/content-types.ts'
+
+type Props = {
+  locale: ContentLocale
+  class?: string
+  notFooter?: boolean
+  footerClass?: string
+  links?: readonly MenuLink[]
+}
+
+const {
+  class: className = '',
+  notFooter = false,
+  footerClass = '',
+  locale,
+  links = [],
+} = Astro.props
+---
+
+<div
+  data-app-container
+  class:list={["@container/app flex min-h-svh flex-col", className]}
+  x-data="{ appWidth: 0 }"
+  x-resize="appWidth = $width"
+>
+  <Header locale={locale} links={links} />
+  <div
+    class="min-h-0 flex-1"
+    data-pagefind-body
+    data-pagefind-filter={`locale:${locale}`}
+  >
+    <slot />
+  </div>
+  {!notFooter && <Footer class={footerClass} locale={locale} />}
+</div>

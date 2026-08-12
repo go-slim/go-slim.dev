@@ -1,0 +1,17 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+
+interface Props extends HTMLAttributes<'a'> {}
+
+const { class: className, href = '/', ...rest } = Astro.props
+---
+
+<a
+  {...rest}
+  class:list={["flex cursor-pointer items-center select-none gap-2", className]}
+  href={href}
+>
+  <Icon name="favico" class="size-6" aria-hidden="true" />
+  <Icon name="slim" class="h-5 w-auto" aria-hidden="true" />
+</a>

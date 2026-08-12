@@ -1,0 +1,48 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import SearchTrigger from '#components/search/trigger.astro'
+import GithubButton from '#components/ui/github-button.astro'
+import AssistantTrigger from '#components/assistant/trigger.astro'
+import BrandLogo from './brand-logo.astro'
+import LanguageMenu from './language-menu.astro'
+import MegaMenu from './mega-menu.astro'
+import MobileMenu from './mobile-menu.astro'
+import ThemeToggle from './theme-toggle.astro'
+import type { MenuLink } from './navigation'
+import { localePrefix, type ContentLocale } from '#lib/content-types.ts'
+
+interface Props extends HTMLAttributes<'header'> {
+  locale: ContentLocale
+  links: readonly MenuLink[]
+}
+
+const { class: className, locale, links, ...rest } = Astro.props
+const homeHref = localePrefix(locale) || '/'
+---
+
+<header
+  {...rest}
+  class:list={["sticky top-0 z-60 bg-background", className]}
+>
+  <div class="relative mx-auto flex h-18 max-w-page items-center gap-12 px-4 @[48rem]/app:px-6 @[64rem]/app:px-8">
+    <div class="flex-1 shrink-0">
+      <BrandLogo href={homeHref} />
+    </div>
+    <MegaMenu class="hidden @[64rem]/app:block" links={links} locale={locale} />
+    <div class="flex flex-1 shrink-0 items-center justify-end gap-1 whitespace-nowrap @[64rem]/app:gap-2">
+      <SearchTrigger
+        locale={locale}
+        class="hover:bg-accent"
+      />
+      <AssistantTrigger locale={locale} />
+      <GithubButton
+        organization="go-slim"
+        class="hidden hover:bg-accent @[64rem]/app:inline-flex"
+      />
+      <ThemeToggle locale={locale} class="hidden @[64rem]/app:block" />
+      <LanguageMenu locale={locale} class="-mr-2 hidden @[64rem]/app:block" />
+      <MobileMenu links={links} locale={locale} />
+    </div>
+  </div>
+  <div class="absolute inset-x-0 bottom-0 h-px origin-bottom scale-y-1/2 bg-border -z-10 pointer-events-none" />
+</header>

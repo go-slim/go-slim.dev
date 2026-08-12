@@ -1,0 +1,101 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import { localeHref } from '#lib/locale.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+import { getLocaleOption, localeOptions } from '#i18n/locales.ts'
+
+interface Props {
+  class?: string
+  locale: ContentLocale
+}
+
+const { class: className, locale } = Astro.props
+const t = useTranslations(locale)
+const currentLocale = getLocaleOption(locale)
+const languageOptions = localeOptions.map((option) => ({
+  ...option,
+  href: localeHref(Astro.url.pathname, option.locale, Astro.url.search),
+}))
+---
+
+<div
+  class:list={["relative", className]}
+  x-data="{ open: false }"
+  x-id="['language-trigger', 'language-options']"
+  @keydown.escape.window="if (open) { open = false; $refs.trigger.focus() }"
+>
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class="select-none gap-1 px-2 text-base font-normal hover:bg-accent has-[>svg]:px-2 aria-expanded:bg-accent"
+    x-ref="trigger"
+    :id="$id('language-trigger')"
+    :aria-controls="$id('language-options')"
+    :aria-expanded="open"
+    @click="open = !open"
+  >
+    <Icon
+      is:inline
+      name={currentLocale.flag}
+      class="size-5 shrink-0"
+      aria-hidden="true"
+    />
+  </Button>
+  <div
+    x-cloak
+    x-show="open"
+    x-transition:enter="transition ease-out duration-150 motion-reduce:transition-none"
+    x-transition:enter-start="-translate-y-1 scale-95 opacity-0"
+    x-transition:enter-end="translate-y-0 scale-100 opacity-100"
+    x-transition:leave="transition ease-in duration-100 motion-reduce:transition-none"
+    x-transition:leave-start="translate-y-0 scale-100 opacity-100"
+    x-transition:leave-end="-translate-y-1 scale-95 opacity-0"
+    :id="$id('language-options')"
+    class="absolute right-0 top-full z-10 mt-2 grid min-w-36 max-w-[calc(100vw-1rem)] origin-top-right gap-px rounded-xl border bg-popover p-1 text-popover-foreground shadow-overlay"
+    role="navigation"
+    :aria-labelledby="$id('language-trigger')"
+    @click.outside="open = false"
+    @click="open = false"
+  >
+    <p class="py-1 ps-3 text-xs text-muted-foreground">
+      {t('language.label')}
+    </p>
+    {languageOptions.map((option) => {
+      const current = option.locale === locale
+
+      return (
+        <Button
+          variant="ghost"
+          size="sm"
+          href={option.href}
+          class:list={[
+            'group w-full justify-start gap-2 px-3 py-2 font-normal hover:bg-accent',
+            current && 'bg-accent text-accent-foreground',
+          ]}
+          aria-current={current ? 'page' : undefined}
+          lang={option.locale}
+          hreflang={option.locale}
+        >
+          <Icon
+            is:inline
+            name={option.flag}
+            class="size-5 shrink-0"
+            aria-hidden="true"
+          />
+          {option.label}
+          <Icon
+            is:inline
+            name="tabler:check"
+            class:list={[
+              'ms-auto size-4',
+              current ? 'opacity-100' : 'opacity-0',
+            ]}
+            aria-hidden="true"
+          />
+        </Button>
+      )
+    })}
+  </div>
+</div>

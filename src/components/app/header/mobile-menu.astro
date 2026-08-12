@@ -1,0 +1,307 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import Item from '#components/ui/item/index.astro'
+import GithubButton from '#components/ui/github-button.astro'
+import type { MenuLink } from './navigation'
+import LibraryStatusBadge from '#components/ui/library-status-badge.astro'
+import { localeHref } from '#lib/locale.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+import { localeOptions } from '#i18n/locales.ts'
+
+interface Props {
+  class?: string
+  links: readonly MenuLink[]
+  locale: ContentLocale
+}
+
+const {
+  class: className,
+  links,
+  locale,
+} = Astro.props
+const t = useTranslations(locale)
+
+const visibleLinks = links.filter((link) =>
+  link.kind === 'link' ||
+  link.more !== undefined ||
+  link.groups.some((group) => group.items.length > 0)
+)
+const themeOptions = [
+  {
+    mode: 'system',
+    icon: 'tabler:sunset-2',
+    label: t('theme.system'),
+  },
+  {
+    mode: 'light',
+    icon: 'tabler:sun',
+    label: t('theme.light'),
+  },
+  {
+    mode: 'dark',
+    icon: 'tabler:moon',
+    label: t('theme.dark'),
+  },
+] as const
+const languageOptions = localeOptions.map((option) => ({
+  ...option,
+  href: localeHref(Astro.url.pathname, option.locale, Astro.url.search),
+}))
+const alpineString = (value: string): string => JSON.stringify(value)
+---
+
+<div
+  class:list={["-mr-2 inline-flex @[64rem]/app:hidden", className]}
+  x-data="mobileMenu"
+  x-id="['mobile-menu-screen', 'theme-options-label', 'language-options-label']"
+  @keydown.escape.window="if (open) { $event.preventDefault(); closeMenu() }"
+  x-effect="if ((open || scrollLocked) && appWidth >= 1024) closeForDesktop()"
+>
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class="group hover:bg-accent aria-expanded:bg-accent"
+    x-ref="trigger"
+    :aria-controls="$id('mobile-menu-screen')"
+    :aria-expanded="open"
+    @click="toggleMenu()"
+  >
+    <span aria-hidden="true" class="relative block h-3.5 w-4 overflow-hidden">
+      <span
+        :class="open ? 'top-1.5 rotate-225' : 'top-0 translate-x-0 group-hover:translate-x-1'"
+        class="absolute left-0 h-0.5 w-4 rounded-full bg-current transition-[top,translate,rotate,background-color] duration-250 motion-reduce:transition-none"
+      ></span>
+      <span
+        :class="open ? 'translate-x-4' : 'translate-x-2 group-hover:translate-x-0'"
+        class="absolute left-0 top-1.5 h-0.5 w-4 rounded-full bg-current transition-[top,translate,rotate,background-color] duration-250 motion-reduce:transition-none"
+      ></span>
+      <span
+        :class="open ? 'top-1.5 rotate-135' : 'top-3 translate-x-1 group-hover:translate-x-2'"
+        class="absolute left-0 h-0.5 w-4 rounded-full bg-current transition-[top,translate,rotate,background-color] duration-250 motion-reduce:transition-none"
+      ></span>
+    </span>
+    <span x-show="!open" class="sr-only">
+      {t('header.menu.open')}
+    </span>
+    <span x-cloak x-show="open" class="sr-only">
+      {t('header.menu.close')}
+    </span>
+  </Button>
+  <nav
+    x-cloak
+    x-show="open"
+    x-transition:enter="transition-[opacity,right] ease-out duration-[250ms] motion-reduce:transition-none"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition-[opacity,right] ease-in duration-[250ms] motion-reduce:transition-none"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    x-bind:style="{
+      '--assistant-offset': $store.ai.panelOpen ? '24rem' : '0rem',
+    }"
+    :id="$id('mobile-menu-screen')"
+    aria-label={t('header.menu.mobileNavigation')}
+    class="fixed bottom-0 left-0 right-0 top-18 z-50 overflow-x-hidden overflow-y-auto overscroll-contain bg-background px-8 text-foreground transition-[right] duration-200 ease-out motion-reduce:transition-none lg:right-(--assistant-offset) @[64rem]/app:hidden"
+    @click="if ($event.target.closest?.('a[href]')) closeMenu()"
+    @transitionend.self="if (!open && $event.propertyName === 'opacity') finishClose()"
+  >
+    <div
+      x-show="open"
+      x-transition:enter="transition-transform ease-out duration-[250ms] motion-reduce:transition-none"
+      x-transition:enter-start="-translate-y-2"
+      x-transition:enter-end="translate-y-0"
+      x-transition:leave="transition-transform ease-in duration-[250ms] motion-reduce:transition-none"
+      x-transition:leave-start="translate-y-0"
+      x-transition:leave-end="-translate-y-2"
+      class="mx-auto max-w-72 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6"
+    >
+      <ul class="divide-y divide-border">
+        {visibleLinks.map((link) => (
+          <li class="py-5 first:pt-0">
+            {link.kind === 'link' ? (
+              <a
+                href={link.href}
+                target={link.external ? '_blank' : undefined}
+                rel={link.external ? 'noopener noreferrer' : undefined}
+                class="block rounded-xs text-base font-semibold hover:text-primary"
+              >
+                {link.title}
+              </a>
+            ) : (
+              <>
+                <h2 class="text-base font-semibold">
+                  {link.title}
+                </h2>
+                <div class="mt-4 space-y-5">
+                  {link.groups
+                    .filter((group) => group.items.length > 0)
+                    .map((group) => (
+                      <section>
+                        <h3 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          {group.title}
+                        </h3>
+                        <ul class="mt-2 space-y-1">
+                          {group.items.map((item) => {
+                            const itemProps = item.href === undefined
+                              ? {}
+                              : {
+                                  href: item.href,
+                                  target: item.external ? '_blank' : undefined,
+                                  rel: item.external ? 'noopener noreferrer' : undefined,
+                                  external: item.external ? 'end' as const : undefined,
+                                }
+
+                            return (
+                              <li>
+                                <Item
+                                  {...itemProps}
+                                  icon={{
+                                    name: item.icon,
+                                    class: 'size-7 text-muted-foreground group-hover:text-accent-foreground',
+                                  }}
+                                  title={item.title}
+                                  subtitle={item.description}
+                                  class:list={[
+                                    '-mx-2 gap-3 rounded-xs px-2 py-2',
+                                    item.href !== undefined && 'group hover:bg-accent',
+                                  ]}
+                                  titleClass="block text-sm font-medium"
+                                  subtitleClass="block truncate text-xs text-muted-foreground"
+                                >
+                                  {item.status !== undefined && item.status !== 'stable' && (
+                                    <LibraryStatusBadge
+                                      slot="trailing"
+                                      status={item.status}
+                                      locale={locale}
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                </Item>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </section>
+                    ))}
+                </div>
+                {link.more !== undefined && (
+                  <a
+                    href={link.more.href}
+                    target={link.more.external ? '_blank' : undefined}
+                    rel={link.more.external ? 'noopener noreferrer' : undefined}
+                    class="-mx-2 mt-4 flex items-center gap-2 rounded-xs px-2 py-2 h-10 text-sm font-medium hover:bg-accent"
+                  >
+                    <Icon
+                      is:inline
+                      name={link.more.icon}
+                      class="size-5"
+                      aria-hidden="true"
+                    />
+                    <span>{link.more.title}</span>
+                    <Icon
+                      is:inline
+                      name={link.more.external ? 'tabler:external-link' : 'tabler:arrow-right'}
+                      class="ms-auto size-4"
+                      aria-hidden="true"
+                    />
+                  </a>
+                )}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div class="mt-1 divide-y divide-border border-t border-border">
+        <div class="py-3">
+          <GithubButton
+            organization="go-slim"
+            layout="row"
+            label="GitHub"
+            newTabLabel={t('header.menu.opensInNewTab')}
+          />
+        </div>
+        <section class="py-5">
+          <h2
+            :id="$id('theme-options-label')"
+            class="text-sm font-semibold"
+          >
+            {t('theme.label')}
+          </h2>
+          <ul
+            class="mt-2 space-y-1"
+            :aria-labelledby="$id('theme-options-label')"
+          >
+            {themeOptions.map((option) => (
+              <li>
+                <Button
+                  variant="ghost"
+                  class="group w-full justify-start gap-3 px-3 font-normal hover:bg-accent aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+                  :aria-pressed={`$store.theme.mode === ${alpineString(option.mode)}`}
+                  @click={`$store.theme.set(${alpineString(option.mode)})`}
+                >
+                  <Icon
+                    name={option.icon}
+                    class="size-5"
+                    aria-hidden="true"
+                  />
+                  <span>{option.label}</span>
+                  <Icon
+                    is:inline
+                    name="tabler:check"
+                    class="ms-auto size-4"
+                    :class={`$store.theme.mode === ${alpineString(option.mode)} ? 'opacity-100' : 'opacity-0'`}
+                    aria-hidden="true"
+                  />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section class="py-5">
+          <h2
+            :id="$id('language-options-label')"
+            class="text-sm font-semibold"
+          >
+            {t('language.switch')}
+          </h2>
+          <ul
+            class="mt-2 space-y-1"
+            :aria-labelledby="$id('language-options-label')"
+          >
+            {languageOptions.map((option) => (
+              <li>
+                <Button
+                  variant="ghost"
+                  href={option.href}
+                  class:list={[
+                    'group w-full justify-start gap-3 px-3 font-normal hover:bg-accent',
+                    option.locale === locale && 'bg-accent text-accent-foreground',
+                  ]}
+                  aria-current={option.locale === locale ? 'page' : undefined}
+                  lang={option.locale}
+                  hreflang={option.locale}
+                >
+                  <Icon
+                    is:inline
+                    name={option.flag}
+                    class="size-5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{option.label}</span>
+                  <Icon
+                    is:inline
+                    name="tabler:check"
+                    class="ms-auto size-4 opacity-0 group-aria-pressed:opacity-100"
+                    aria-hidden="true"
+                  />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
+  </nav>
+</div>

@@ -1,0 +1,67 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+interface Props {
+  class?: string
+  locale: ContentLocale
+}
+
+const { class: className, locale } = Astro.props
+const t = useTranslations(locale)
+---
+
+<div
+  class:list={["relative size-9", className]}
+  x-data="tooltip(500)"
+  x-id="['tooltip']"
+  @keydown.escape.window="dismiss()"
+>
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class="hover:bg-accent"
+    x-cloak
+    x-ref="trigger"
+    @click="$store.theme.cycle()"
+    @mouseenter="queueOpen()"
+    @mouseleave="closeHover()"
+    @focus="openFocus()"
+    @blur="closeFocus()"
+    :aria-describedby="$id('tooltip')"
+  >
+    <Icon x-show="$store.theme.mode === 'dark'" name="tabler:moon" class="size-5" aria-hidden="true" />
+    <Icon x-show="$store.theme.mode === 'light'" name="tabler:sun-high" class="size-5" aria-hidden="true" />
+    <Icon x-show="$store.theme.mode === 'system'" name="tabler:circle-half-2" class="size-5" aria-hidden="true" />
+    <span class="sr-only">{t('theme.switch')}</span>
+  </Button>
+  <span
+    x-cloak
+    x-show="open"
+    x-transition:enter="transition ease-out duration-150 motion-reduce:transition-none"
+    x-transition:enter-start="-translate-y-1 scale-95 opacity-0"
+    x-transition:enter-end="translate-y-0 scale-100 opacity-100"
+    x-transition:leave="transition ease-in duration-100 motion-reduce:transition-none"
+    x-transition:leave-start="translate-y-0 scale-100 opacity-100"
+    x-transition:leave-end="-translate-y-1 scale-95 opacity-0"
+    :id="$id('tooltip')"
+    role="tooltip"
+    class="pointer-events-none absolute left-1/2 top-full z-70 mt-2 w-max max-w-72 -translate-x-1/2 origin-top whitespace-normal rounded-sm bg-foreground px-2.5 py-1.5 text-xs leading-relaxed text-background shadow-overlay"
+  >
+    <span
+      aria-hidden="true"
+      class="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rotate-45 bg-foreground"
+    />
+    <span x-show="$store.theme.mode === 'system'">
+      {t('theme.switchToLight')}
+    </span>
+    <span x-show="$store.theme.mode === 'light'">
+      {t('theme.switchToDark')}
+    </span>
+    <span x-show="$store.theme.mode === 'dark'">
+      {t('theme.switchToSystem')}
+    </span>
+  </span>
+</div>
