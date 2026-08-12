@@ -1,0 +1,81 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { AlpineAttributes } from "../types"
+import { Icon } from 'astro-icon/components'
+import { tv } from 'tailwind-variants'
+
+type Props = Omit<HTMLAttributes<'input'>, 'class' | 'type'> &
+  AlpineAttributes & {
+    label?: string
+    class?: HTMLAttributes<'label'>['class']
+    inputClass?: HTMLAttributes<'input'>['class']
+    indicatorClass?: HTMLAttributes<'span'>['class']
+    labelClass?: HTMLAttributes<'span'>['class']
+  }
+
+const rootStyles = tv({
+  base: [
+    'inline-flex w-fit cursor-pointer select-none items-center gap-2',
+    'has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50',
+  ],
+})
+
+const controlStyles = tv({
+  base: 'relative inline-flex size-4 shrink-0',
+})
+
+const inputStyles = tv({
+  base: [
+    'peer absolute inset-0 z-10 size-full cursor-pointer appearance-none opacity-0',
+    'disabled:cursor-not-allowed',
+  ],
+})
+
+const indicatorStyles = tv({
+  base: [
+    'inline-flex size-4 shrink-0 items-center justify-center rounded-xs border-1 border-input bg-muted',
+    'transition-[color,background-color,border-color,box-shadow]',
+    'peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground',
+    'peer-checked:ring-primary peer-checked:[&_svg]:opacity-100',
+    'peer-focus-visible:ring-3 peer-focus-visible:ring-outline/50',
+  ],
+})
+
+const {
+  label,
+  class: className,
+  inputClass,
+  indicatorClass,
+  labelClass,
+  ...inputProps
+} = Astro.props
+
+const hasLabel = label !== undefined || Astro.slots.has('default')
+---
+
+<label class={rootStyles({ class: className })}>
+  <span data-slot="control" class={controlStyles()}>
+    <input
+      {...inputProps}
+      type="checkbox"
+      class={inputStyles({ class: inputClass })}
+    />
+    <span
+      data-slot="indicator"
+      aria-hidden="true"
+      class={indicatorStyles({ class: indicatorClass })}
+    >
+      <Icon
+        is:inline
+        name="tabler:check"
+        class="size-3 opacity-0 transition-opacity [&_path]:stroke-4"
+      />
+    </span>
+  </span>
+
+  {hasLabel && (
+    <span data-slot="label" class={labelClass}>
+      <slot>{label}</slot>
+    </span>
+  )}
+</label>

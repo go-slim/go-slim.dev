@@ -1,0 +1,41 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { LibraryStatus, ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+import type { UiTranslationKey } from '#i18n/ui.ts'
+import Badge from '#components/ui/badge/index.astro'
+
+type Props = Omit<HTMLAttributes<'span'>, 'color'> & {
+  status: LibraryStatus
+  locale: ContentLocale
+}
+
+const { status, locale, class: className = '', ...rest } = Astro.props
+const t = useTranslations(locale)
+const colors = {
+  design: 'warning',
+  experimental: 'info',
+  stable: 'success',
+  deprecated: 'error',
+} as const satisfies Record<LibraryStatus, 'info' | 'success' | 'warning' | 'error'>
+const labelKeys = {
+  design: 'status.design',
+  experimental: 'status.experimental',
+  stable: 'status.stable',
+  deprecated: 'status.deprecated',
+} as const satisfies Record<LibraryStatus, UiTranslationKey>
+const visible = status !== 'stable'
+---
+
+{visible && (
+  <Badge
+    {...rest}
+    variant="solid"
+    color={colors[status]}
+    size="sm"
+    class={className}
+  >
+    <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
+    {t(labelKeys[status])}
+  </Badge>
+)}

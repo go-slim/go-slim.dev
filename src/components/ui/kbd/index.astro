@@ -1,0 +1,24 @@
+---
+import { Icon } from 'astro-icon/components';
+
+type Props = {
+  class?: string;
+  icon?: string;
+  label?: string;
+};
+
+const { icon, label, class: className } = Astro.props;
+---
+
+<kbd class:list={[
+  "size-6 inline-flex items-center justify-center rounded-xs bg-primary/5 uppercase text-xs text-muted-foreground [&_svg]:size-4",
+  className,
+]}>
+  <slot>
+    {icon != null && icon !== ''
+      ? <Icon name={icon} />
+      : label != null && label !== ''
+        ? <span class="scale-85">{label}</span>
+        : null}
+  </slot>
+</kbd>

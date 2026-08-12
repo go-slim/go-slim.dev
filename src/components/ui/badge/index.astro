@@ -1,0 +1,78 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { VariantProps } from 'tailwind-variants'
+import type { AlpineAttributes } from '../types'
+
+import variants from './variants'
+
+type StyleProps = Omit<VariantProps<typeof variants>, 'isLink'> &
+  AlpineAttributes & {
+    class?: HTMLAttributes<'span'>['class']
+    text?: string
+  }
+
+type AnchorProps = StyleProps &
+  Omit<HTMLAttributes<'a'>, keyof StyleProps> & {
+    href: NonNullable<HTMLAttributes<'a'>['href']>
+  }
+
+type SpanProps = StyleProps &
+  Omit<HTMLAttributes<'span'>, keyof StyleProps> & {
+    href?: never
+  }
+
+type Props = AnchorProps | SpanProps
+
+const props = Astro.props as Props
+const isLink = props.href !== undefined && props.href !== null
+
+const {
+  variant,
+  size,
+  color,
+  class: className,
+  square,
+  text,
+} = props
+const classes = variants({
+  variant,
+  size,
+  color,
+  square,
+  isLink,
+  class: className,
+})
+
+const {
+  variant: _anchorVariant,
+  size: _anchorSize,
+  color: _anchorColor,
+  square: _anchorSquare,
+  class: _anchorClass,
+  text: _anchorText,
+  ...anchorProps
+} = props as AnchorProps
+
+const {
+  variant: _spanVariant,
+  size: _spanSize,
+  color: _spanColor,
+  square: _spanSquare,
+  class: _spanClass,
+  text: _spanText,
+  href: _spanHref,
+  ...spanProps
+} = props as SpanProps
+---
+
+{
+  isLink ? (
+    <a {...anchorProps} class={classes} data-slot="badge">
+      <slot>{text}</slot>
+    </a>
+  ) : (
+    <span {...spanProps} class={classes} data-slot="badge">
+      <slot>{text}</slot>
+    </span>
+  )
+}

@@ -1,0 +1,58 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { VariantProps } from 'tailwind-variants'
+import type { AlpineAttributes } from "../types"
+import variants from './variants'
+
+type StyleProps = VariantProps<typeof variants> &
+  AlpineAttributes & {
+    class?: HTMLAttributes<'button'>['class']
+  }
+
+type AnchorProps = StyleProps &
+  Omit<HTMLAttributes<'a'>, keyof StyleProps | 'type'> & {
+    href: NonNullable<HTMLAttributes<'a'>['href']>
+  }
+
+type NativeButtonProps = StyleProps &
+  Omit<HTMLAttributes<'button'>, keyof StyleProps> & {
+    href?: never
+  }
+
+type Props = AnchorProps | NativeButtonProps
+
+const props = Astro.props as Props
+const isLink = props.href !== undefined && props.href !== null
+const { variant, size, class: className } = props
+const classes = variants({ variant, size, class: className })
+
+const {
+  variant: _anchorVariant,
+  size: _anchorSize,
+  class: _anchorClass,
+  ...anchorProps
+} = props as AnchorProps
+
+const {
+  variant: _buttonVariant,
+  size: _buttonSize,
+  class: _buttonClass,
+  href: _buttonHref,
+  type: suppliedButtonType,
+  ...buttonProps
+} = props as NativeButtonProps
+
+const buttonType = suppliedButtonType ?? 'button'
+---
+
+{
+  isLink ? (
+    <a {...anchorProps} class={classes}>
+      <slot />
+    </a>
+  ) : (
+    <button {...buttonProps} type={buttonType} class={classes}>
+      <slot />
+    </button>
+  )
+}

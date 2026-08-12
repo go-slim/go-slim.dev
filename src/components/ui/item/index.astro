@@ -1,0 +1,239 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import { tv } from 'tailwind-variants'
+import type { AlpineAttributes } from '../types'
+
+type ItemIcon = {
+  name: string
+  class?: HTMLAttributes<'svg'>['class']
+}
+
+type ItemExternal = true | 'follow' | 'end'
+
+type StyleProps = AlpineAttributes & {
+  class?: HTMLAttributes<'div'>['class']
+  leadingClass?: HTMLAttributes<'span'>['class']
+  contentClass?: HTMLAttributes<'span'>['class']
+  headingClass?: HTMLAttributes<'span'>['class']
+  titleClass?: HTMLAttributes<'span'>['class']
+  metaClass?: HTMLAttributes<'span'>['class']
+  subtitleClass?: HTMLAttributes<'span'>['class']
+  trailingClass?: HTMLAttributes<'span'>['class']
+  icon?: string | ItemIcon
+  title?: string
+  subtitle?: string
+}
+
+type AnchorProps = StyleProps &
+  Omit<HTMLAttributes<'a'>, keyof StyleProps | 'href'> &
+  (
+    | {
+        as?: 'a'
+        href: NonNullable<HTMLAttributes<'a'>['href']>
+      }
+    | {
+        as: 'a'
+        href?: HTMLAttributes<'a'>['href']
+      }
+  ) & {
+    external?: ItemExternal
+    externalIcon?: string | ItemIcon
+    externalLabel?: string
+  }
+
+type ButtonProps = StyleProps &
+  Omit<HTMLAttributes<'button'>, keyof StyleProps> & {
+    as: 'button'
+    href?: never
+    external?: never
+    externalIcon?: never
+    externalLabel?: never
+  }
+
+type StaticProps = StyleProps &
+  Omit<HTMLAttributes<'div'>, keyof StyleProps> & {
+    as?: 'div'
+    href?: never
+    external?: never
+    externalIcon?: never
+    externalLabel?: never
+  }
+
+type Props = AnchorProps | ButtonProps | StaticProps
+
+const props = Astro.props as Props
+const {
+  as,
+  href,
+  type: suppliedButtonType,
+  icon,
+  title,
+  subtitle,
+  external,
+  externalIcon = 'tabler:external-link',
+  externalLabel,
+  class: className,
+  leadingClass,
+  contentClass,
+  headingClass,
+  titleClass,
+  metaClass,
+  subtitleClass,
+  trailingClass,
+  ...rest
+} = props as Props & { type?: HTMLAttributes<'button'>['type'] }
+
+const isLink = as === 'a' || href !== undefined && href !== null
+const isButton = as === 'button'
+const isInteractive = isLink || isButton
+const Tag = isLink ? 'a' : isButton ? 'button' : 'div'
+const buttonType = suppliedButtonType ?? 'button'
+const externalPlacement = external === true ? 'follow' : external
+const externalIconName = typeof externalIcon === 'string'
+  ? externalIcon
+  : externalIcon.name
+const externalIconClass = typeof externalIcon === 'string'
+  ? 'size-4'
+  : externalIcon.class
+
+const hasLeading = icon !== undefined || Astro.slots.has('leading')
+const hasHeading =
+  title !== undefined ||
+  Astro.slots.has('default') ||
+  Astro.slots.has('meta') ||
+  externalPlacement === 'follow'
+const hasSubtitle = subtitle !== undefined || Astro.slots.has('subtitle')
+const hasTrailing = Astro.slots.has('trailing') || externalPlacement === 'end'
+
+const itemStyles = tv({
+  slots: {
+    root: 'relative flex min-w-0 items-center text-left',
+    leading: 'flex shrink-0 items-center justify-center',
+    content: 'min-w-0 flex-1',
+    heading: 'flex min-w-0 items-center gap-2',
+    title: 'min-w-0',
+    meta: 'flex shrink-0 items-center',
+    subtitle: 'min-w-0',
+    trailing: 'ms-auto flex shrink-0 items-center justify-center',
+  },
+  variants: {
+    interactive: {
+      true: {
+        root: [
+          'cursor-pointer outline-hidden transition-colors',
+          'focus-visible:ring-3 focus-visible:ring-outline/50',
+          'disabled:pointer-events-none disabled:opacity-50',
+        ],
+      },
+    },
+  },
+})
+
+const styles = itemStyles({ interactive: isInteractive })
+const iconName = typeof icon === 'string' ? icon : icon?.name
+const iconClass = typeof icon === 'string' ? 'size-5' : icon?.class
+---
+
+<Tag
+  {...rest}
+  href={isLink ? href : undefined}
+  type={isButton ? buttonType : undefined}
+  class={styles.root({ class: className })}
+  data-slot="item"
+  data-interactive={isInteractive ? '' : undefined}
+>
+  {hasLeading && (
+    <span
+      class={styles.leading({ class: leadingClass })}
+      data-slot="item-leading"
+    >
+      <slot name="leading">
+        {iconName && (
+          <Icon
+            is:inline
+            name={iconName}
+            class={iconClass}
+            aria-hidden="true"
+          />
+        )}
+      </slot>
+    </span>
+  )}
+
+  {(hasHeading || hasSubtitle) && (
+    <span
+      class={styles.content({ class: contentClass })}
+      data-slot="item-content"
+    >
+      {hasHeading && (
+        <span
+          class={styles.heading({ class: headingClass })}
+          data-slot="item-heading"
+        >
+          {(title !== undefined || Astro.slots.has('default')) && (
+            <span
+              class={styles.title({ class: titleClass })}
+              data-slot="item-title"
+            >
+              <slot>{title}</slot>
+            </span>
+          )}
+
+          {Astro.slots.has('meta') && (
+            <span
+              class={styles.meta({ class: metaClass })}
+              data-slot="item-meta"
+            >
+              <slot name="meta" />
+            </span>
+          )}
+
+          {externalPlacement === 'follow' && (
+            <span
+              class="flex shrink-0 items-center"
+              data-slot="item-external"
+            >
+              <Icon
+                is:inline
+                name={externalIconName}
+                class={externalIconClass}
+                aria-hidden="true"
+              />
+              {externalLabel && <span class="sr-only">{externalLabel}</span>}
+            </span>
+          )}
+        </span>
+      )}
+
+      {hasSubtitle && (
+        <span
+          class={styles.subtitle({ class: subtitleClass })}
+          data-slot="item-subtitle"
+        >
+          <slot name="subtitle">{subtitle}</slot>
+        </span>
+      )}
+    </span>
+  )}
+
+  {hasTrailing && (
+    <span
+      class={styles.trailing({ class: trailingClass })}
+      data-slot="item-trailing"
+    >
+      <slot name="trailing" />
+      {externalPlacement === 'end' && (
+        <span class="flex shrink-0 items-center" data-slot="item-external">
+          <Icon
+            is:inline
+            name={externalIconName}
+            class={externalIconClass}
+            aria-hidden="true"
+          />
+          {externalLabel && <span class="sr-only">{externalLabel}</span>}
+        </span>
+      )}
+    </span>
+  )}
+</Tag>

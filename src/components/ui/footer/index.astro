@@ -1,0 +1,95 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import { tv } from 'tailwind-variants'
+import Button from '#components/ui/button/index.astro'
+import type { AlpineAttributes } from '../types'
+
+type SocialLink = {
+  href: NonNullable<HTMLAttributes<'a'>['href']>
+  icon: string
+  label: string
+  external?: boolean
+}
+
+type Props = Omit<HTMLAttributes<'footer'>, 'class'> &
+  AlpineAttributes & {
+    class?: HTMLAttributes<'footer'>['class']
+    containerClass?: HTMLAttributes<'div'>['class']
+    copyright?: string
+    socialLabel?: string
+    socialLinks?: readonly SocialLink[]
+  }
+
+const {
+  class: className,
+  containerClass,
+  copyright,
+  socialLabel = 'Social links',
+  socialLinks = [],
+  ...rest
+} = Astro.props
+
+const hasCopyright =
+  copyright !== undefined || Astro.slots.has('default')
+
+const footerStyles = tv({
+  slots: {
+    root: 'border-t border-border py-8 text-sm text-muted-foreground',
+    container: [
+      'mx-auto flex max-w-page flex-col items-center justify-between gap-4 px-4',
+      '@[48rem]/app:flex-row @[48rem]/app:px-6 @[64rem]/app:px-8',
+    ],
+    copyright: 'min-w-0 text-center @[48rem]/app:text-start',
+    social: 'ms-auto flex items-center gap-1 -me-2.5',
+  },
+})
+
+const styles = footerStyles()
+---
+
+<footer
+  {...rest}
+  class={styles.root({ class: className })}
+  data-slot="footer"
+>
+  <div
+    class={styles.container({ class: containerClass })}
+    data-slot="footer-container"
+  >
+    {hasCopyright && (
+      <div
+        class={styles.copyright()}
+        data-slot="footer-copyright"
+      >
+        <slot>{copyright}</slot>
+      </div>
+    )}
+
+    {socialLinks.length > 0 && (
+      <nav aria-label={socialLabel} data-slot="footer-social">
+        <ul class={styles.social()} role="list">
+          {socialLinks.map((link) => (
+            <li>
+              <Button
+                href={link.href}
+                target={link.external ? '_blank' : undefined}
+                rel={link.external ? 'noopener noreferrer' : undefined}
+                aria-label={link.label}
+                variant="ghost"
+                size="icon-sm"
+              >
+                <Icon
+                  is:inline
+                  name={link.icon}
+                  class="size-4.5"
+                  aria-hidden="true"
+                />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )}
+  </div>
+</footer>

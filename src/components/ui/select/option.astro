@@ -1,0 +1,47 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { Icon } from 'astro-icon/components'
+import { tv } from 'tailwind-variants'
+import type { SelectOption } from './select'
+
+type Props = {
+  option: SelectOption
+  initialValue: string
+  class?: HTMLAttributes<'div'>['class']
+}
+
+const optionStyles = tv({
+  base: [
+    'group flex h-9 w-full cursor-pointer items-center rounded-xs px-3 text-sm font-medium',
+    'hover:bg-muted focus-visible:ring-3 focus-visible:ring-outline/50 focus-visible:outline-hidden',
+    'aria-disabled:pointer-events-none aria-disabled:opacity-50',
+  ],
+})
+
+const {
+  option,
+  initialValue,
+  class: className,
+} = Astro.props
+---
+
+<li role="presentation">
+  <div
+    role="option"
+    tabindex="-1"
+    data-slot="option"
+    data-value={option.value}
+    data-label={option.label}
+    aria-disabled={option.disabled ? 'true' : undefined}
+    aria-selected={option.value === initialValue}
+    class={optionStyles({ class: className })}
+  >
+    <span>{option.label}</span>
+    <Icon
+      is:inline
+      name="tabler:check"
+      class="ms-auto size-4 opacity-0 group-aria-selected:opacity-100"
+      aria-hidden="true"
+    />
+  </div>
+</li>

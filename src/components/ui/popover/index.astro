@@ -1,0 +1,146 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { tv } from 'tailwind-variants'
+
+type Align = 'start' | 'center' | 'end'
+
+type Props = Omit<HTMLAttributes<'button'>, 'type' | 'popovertarget'> & {
+  align?: Align
+  closeOnScroll?: boolean
+  offset?: number
+  dialogId?: string
+  dialogClass?: string
+  dialogLabel: string
+}
+
+const {
+  align = 'center',
+  closeOnScroll = false,
+  offset = 4,
+  class: className,
+  dialogId: providedDialogId,
+  dialogClass,
+  dialogLabel,
+  ...triggerProps
+} = Astro.props
+
+const dialogId = providedDialogId ?? `popover-${crypto.randomUUID()}`
+const triggerStyles = tv({
+  base: 'inline-flex items-center justify-center outline-hidden focus-visible:ring-3 focus-visible:ring-outline/50 disabled:pointer-events-none',
+})
+const dialogStyles = tv({
+  base: 'fixed inset-auto m-0 flex max-h-[calc(100dvh-1rem)] w-72 max-w-[calc(100vw-1rem)] flex-col gap-2.5 overflow-auto rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-md outline-hidden',
+})
+const triggerClasses = triggerStyles({ class: className })
+const dialogClasses = dialogStyles({ class: dialogClass })
+---
+
+<div
+  class="contents"
+  data-ui-popover
+  data-ui-popover-close-on-scroll={closeOnScroll ? '' : undefined}
+  data-align={align}
+>
+  <button
+    type="button"
+    popovertarget={dialogId}
+    aria-haspopup="dialog"
+    class={triggerClasses}
+    data-ui-popover-trigger
+    {...triggerProps}
+  >
+    <slot name="trigger" />
+  </button>
+  <div
+    id={dialogId}
+    popover="auto"
+    role="dialog"
+    aria-label={dialogLabel}
+    tabindex="-1"
+    class={dialogClasses}
+    style={`--popover-offset: ${offset}px`}
+    data-ui-popover-dialog
+  >
+    <slot name="dialog" />
+  </div>
+</div>
+
+<style>
+  [data-ui-popover-dialog]:not(:popover-open) {
+    display: none;
+  }
+
+  [data-ui-popover-dialog] {
+    position-area: block-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    margin-block-start: var(--popover-offset);
+    transform-origin: 50% 0%;
+    opacity: 0;
+    scale: 0.8;
+    transition:
+      opacity 120ms ease-out,
+      scale 120ms ease-out,
+      display 120ms allow-discrete,
+      overlay 120ms allow-discrete;
+  }
+
+  [data-ui-popover-dialog]:popover-open {
+    opacity: 1;
+    scale: 1;
+  }
+
+  @starting-style {
+    [data-ui-popover-dialog]:popover-open {
+      opacity: 0;
+      scale: 0.8;
+    }
+  }
+
+  [data-align='start'] > [data-ui-popover-dialog] {
+    position-area: block-end span-inline-end;
+    transform-origin: 0% 0%;
+  }
+
+  [data-align='end'] > [data-ui-popover-dialog] {
+    position-area: block-end span-inline-start;
+    transform-origin: 100% 0%;
+  }
+
+  :dir(rtl)[data-align='start'] > [data-ui-popover-dialog] {
+    transform-origin: 100% 0%;
+  }
+
+  :dir(rtl)[data-align='end'] > [data-ui-popover-dialog] {
+    transform-origin: 0% 0%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-ui-popover-dialog] {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  if (!document.documentElement.hasAttribute('data-ui-popover-scroll-ready')) {
+    document.documentElement.setAttribute('data-ui-popover-scroll-ready', '')
+    document.addEventListener(
+      'scroll',
+      (event) => {
+        document
+          .querySelectorAll<HTMLElement>(
+            '[data-ui-popover-close-on-scroll] [data-ui-popover-dialog]:popover-open',
+          )
+          .forEach((dialog) => {
+            if (
+              event.target instanceof Node &&
+              dialog.contains(event.target)
+            ) return
+
+            dialog.hidePopover()
+          })
+      },
+      { capture: true, passive: true },
+    )
+  }
+</script>

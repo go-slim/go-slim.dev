@@ -1,0 +1,276 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import { tv } from 'tailwind-variants'
+import type { ScrollAreaOrientation } from './scrollarea'
+
+type OffsetValue = number | string
+type Offset = OffsetValue | readonly [OffsetValue, OffsetValue]
+type Side = 'top' | 'bottom' | 'left' | 'right'
+type Layout = 'fill' | 'flow'
+
+type Props = Omit<HTMLAttributes<'div'>, 'class'> & {
+  orientation?: ScrollAreaOrientation
+  followEnd?: boolean
+  endThreshold?: number
+  layout?: Layout
+  side?: Side
+  offset?: Offset
+  class?: HTMLAttributes<'div'>['class']
+  viewportClass?: HTMLAttributes<'div'>['class']
+  viewportBindClass?: string
+  contentClass?: HTMLAttributes<'div'>['class']
+  scrollbarClass?: HTMLAttributes<'div'>['class']
+  viewportLabel?: string
+  viewportTabindex?: number
+  viewportScroll?: string
+  scrollbarBindClass?: string
+}
+
+const rootStyles = tv({
+  base: 'relative min-h-0 min-w-0 overflow-hidden',
+})
+
+const viewportStyles = tv({
+  base: [
+    'overscroll-contain',
+    'outline-hidden focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+  ],
+  variants: {
+    layout: {
+      fill: 'absolute inset-0',
+      flow: 'relative h-full',
+    },
+    orientation: {
+      vertical: 'overflow-x-hidden overflow-y-auto',
+      horizontal: 'overflow-x-auto overflow-y-hidden',
+    },
+  },
+})
+
+const scrollbarStyles = tv({
+  base: 'absolute z-30 overscroll-contain',
+  variants: {
+    orientation: {
+      vertical: 'top-0 bottom-0 overflow-hidden',
+      horizontal: 'right-0 left-0 overflow-hidden',
+    },
+    side: {
+      top: 'top-0',
+      bottom: 'bottom-0',
+      left: 'left-0',
+      right: 'right-0',
+    },
+  },
+})
+
+const {
+  orientation = 'vertical',
+  followEnd = false,
+  endThreshold = 64,
+  layout = 'fill',
+  side: suppliedSide,
+  offset,
+  class: className,
+  viewportClass,
+  viewportBindClass,
+  contentClass,
+  scrollbarClass,
+  viewportLabel,
+  viewportTabindex = 0,
+  viewportScroll,
+  scrollbarBindClass,
+  ...rest
+} = Astro.props
+
+const side = orientation === 'vertical'
+  ? suppliedSide === 'left' ? 'left' : 'right'
+  : suppliedSide === 'top' ? 'top' : 'bottom'
+
+const offsets = offset === undefined
+  ? undefined
+  : Array.isArray(offset) ? offset : [offset, offset]
+
+const toCssLength = (value: OffsetValue) =>
+  typeof value === 'number' ? `${value}px` : value
+
+const scrollbarStyle = offsets === undefined
+  ? undefined
+  : orientation === 'vertical'
+    ? `top:${toCssLength(offsets[0])};bottom:${toCssLength(offsets[1])}`
+    : `left:${toCssLength(offsets[0])};right:${toCssLength(offsets[1])}`
+
+const xData = `scrollArea(${JSON.stringify(orientation)}, ${JSON.stringify(followEnd)}, ${JSON.stringify(endThreshold)})`
+const viewportScrollExpression = viewportScroll === undefined
+  ? 'syncFromViewport()'
+  : 'syncFromViewport(); ' + viewportScroll
+---
+
+<div
+  {...rest}
+  x-data={xData}
+  :data-ready="ready"
+  :data-dragging="dragging"
+  :data-scrolling="scrolling"
+  data-slot="root"
+  data-orientation={orientation}
+  class={rootStyles({ class: className })}
+  @focus.window="showScrollbarTemporarily()"
+  @visibilitychange.document="handleVisibilityChange()"
+>
+  <div
+    x-ref="viewport"
+    data-slot="viewport"
+    data-orientation={orientation}
+    class={viewportStyles({ layout, orientation, class: viewportClass })}
+    x-bind:class={viewportBindClass}
+    role={viewportLabel === undefined ? undefined : 'region'}
+    aria-label={viewportLabel}
+    tabindex={viewportTabindex}
+    x-on:scroll.passive={viewportScrollExpression}
+  >
+    <div
+      x-ref="content"
+      data-slot="content"
+      class={contentClass}
+    >
+      <slot />
+    </div>
+  </div>
+
+  <div
+    x-ref="scrollbar"
+    data-slot="scrollbar"
+    data-orientation={orientation}
+    data-side={side}
+    class={scrollbarStyles({
+      orientation,
+      side,
+      class: scrollbarClass,
+    })}
+    x-bind:class={scrollbarBindClass}
+    style={scrollbarStyle}
+    :data-overflow="hasOverflow"
+    :data-dragging="dragging"
+    aria-hidden="true"
+    @pointerdown="jumpToPointer($event)"
+  >
+    <div
+      x-ref="thumb"
+      data-slot="scrollbar-thumb-hitbox"
+      data-orientation={orientation}
+      class:list={[
+        'absolute touch-none select-none will-change-transform',
+        orientation === 'vertical'
+          ? 'inset-x-0 top-0'
+          : 'inset-y-0 left-0',
+      ]}
+      :style={orientation === 'vertical'
+        ? "{ height: `${thumbSize}px`, transform: `translate3d(0, ${thumbOffset}px, 0)` }"
+        : "{ width: `${thumbSize}px`, transform: `translate3d(${thumbOffset}px, 0, 0)` }"}
+      @pointerdown.stop="startThumbDrag($event)"
+      @pointermove.prevent="moveThumb($event)"
+      @pointerup="endThumbDrag($event)"
+      @pointercancel="endThumbDrag($event)"
+      @lostpointercapture="endThumbDrag($event)"
+    >
+      <div
+        data-slot="scrollbar-thumb"
+        data-orientation={orientation}
+      />
+    </div>
+  </div>
+
+  <slot name="overlay" />
+</div>
+
+<style>
+  [data-slot="root"][data-ready="true"] > [data-slot="viewport"] {
+    scrollbar-width: none;
+  }
+
+  [data-slot="root"][data-ready="true"] > [data-slot="viewport"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-slot="root"] > [data-slot="scrollbar"] {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    touch-action: none;
+    user-select: none;
+    transition:
+      opacity 120ms ease,
+      width 120ms ease,
+      height 120ms ease;
+  }
+
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="vertical"] {
+    width: 4px;
+  }
+
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="horizontal"] {
+    height: 4px;
+  }
+
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="vertical"]:hover,
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="vertical"][data-dragging="true"] {
+    width: 8px;
+  }
+
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="horizontal"]:hover,
+  [data-slot="root"] > [data-slot="scrollbar"][data-orientation="horizontal"][data-dragging="true"] {
+    height: 8px;
+  }
+
+  [data-slot="root"][data-ready="true"] > [data-slot="scrollbar"][data-overflow="true"] {
+    visibility: visible;
+  }
+
+  [data-slot="root"][data-ready="true"]:hover > [data-slot="scrollbar"][data-overflow="true"],
+  [data-slot="root"][data-ready="true"]:focus-within > [data-slot="scrollbar"][data-overflow="true"],
+  [data-slot="root"][data-ready="true"][data-scrolling="true"] > [data-slot="scrollbar"][data-overflow="true"],
+  [data-slot="root"][data-ready="true"] > [data-slot="scrollbar"][data-overflow="true"][data-dragging="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [data-slot="scrollbar-thumb-hitbox"] {
+    z-index: 1;
+  }
+
+  [data-slot="scrollbar-thumb"] {
+    position: absolute;
+    border-radius: 9999px;
+    background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    transition: width 120ms ease, height 120ms ease, background-color 120ms ease;
+  }
+
+  [data-slot="scrollbar-thumb"][data-orientation="vertical"] {
+    inset-block: 0;
+    inset-inline-end: 1px;
+    width: 2px;
+  }
+
+  [data-slot="scrollbar-thumb"][data-orientation="horizontal"] {
+    inset-inline: 0;
+    inset-block-end: 1px;
+    height: 2px;
+  }
+
+  [data-slot="scrollbar-thumb-hitbox"]:hover > [data-slot="scrollbar-thumb"][data-orientation="vertical"],
+  [data-slot="scrollbar"][data-dragging="true"] [data-slot="scrollbar-thumb"][data-orientation="vertical"] {
+    width: 6px;
+  }
+
+  [data-slot="scrollbar-thumb-hitbox"]:hover > [data-slot="scrollbar-thumb"][data-orientation="horizontal"],
+  [data-slot="scrollbar"][data-dragging="true"] [data-slot="scrollbar-thumb"][data-orientation="horizontal"] {
+    height: 6px;
+  }
+
+  @media (hover: none) {
+    [data-slot="root"][data-ready="true"] > [data-slot="scrollbar"][data-overflow="true"] {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+</style>

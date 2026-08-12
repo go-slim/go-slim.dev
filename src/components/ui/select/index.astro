@@ -1,0 +1,164 @@
+---
+import type { HTMLAttributes } from 'astro/types'
+import type { AlpineAttributes } from "../types"
+import { Icon } from 'astro-icon/components'
+import { tv } from 'tailwind-variants'
+import Button from '#components/ui/button/index.astro'
+import SelectOptionItem from './option.astro'
+import type { SelectGroup, SelectOption } from './select'
+
+type SelectSide = 'top' | 'bottom'
+type SelectAlign = 'start' | 'center' | 'end'
+
+type BaseProps = Omit<HTMLAttributes<'div'>, 'class'> &
+  AlpineAttributes & {
+    initialValue?: string
+    placeholder?: string
+    disabled?: boolean
+    side?: SelectSide
+    align?: SelectAlign
+    class?: HTMLAttributes<'div'>['class']
+    triggerClass?: HTMLAttributes<'button'>['class']
+    contentClass?: HTMLAttributes<'div'>['class']
+    optionClass?: HTMLAttributes<'div'>['class']
+  }
+
+type Props = BaseProps & (
+  | {
+      options: readonly SelectOption[]
+      groups?: never
+    }
+  | {
+      options?: never
+      groups: readonly SelectGroup[]
+    }
+)
+
+const rootStyles = tv({
+  base: 'relative',
+})
+
+const contentStyles = tv({
+  base: 'absolute z-20 grid min-w-40 select-none grid-cols-1 rounded-md border bg-popover p-2 shadow-sm',
+  variants: {
+    side: {
+      top: 'bottom-full mb-1',
+      bottom: 'top-full mt-1',
+    },
+    align: {
+      start: 'left-0',
+      center: 'left-1/2 -translate-x-1/2',
+      end: 'right-0',
+    },
+  },
+})
+
+const {
+  options,
+  groups,
+  initialValue = '',
+  placeholder = 'Select…',
+  disabled = false,
+  side = 'bottom',
+  align = 'start',
+  class: className,
+  triggerClass,
+  contentClass,
+  optionClass,
+  'x-model': xModel,
+  ...rest
+} = Astro.props
+
+const flatOptions = options ?? []
+const groupedOptions = groups ?? []
+const allOptions = groups === undefined
+  ? flatOptions
+  : groupedOptions.flatMap((group) => group.options)
+const initialLabel = allOptions.find(
+  (option) => option.value === initialValue,
+)?.label ?? placeholder
+const hasOptions = allOptions.some((option) => !option.disabled)
+const xData = `selectMenu(${JSON.stringify(initialValue)}, ${JSON.stringify(placeholder)})`
+---
+
+<div
+  {...rest}
+  class={rootStyles({ class: className })}
+  data-slot="root"
+  x-data={xData}
+  x-model={xModel}
+  x-modelable="value"
+  x-effect="syncSelection()"
+  x-id="['select-trigger', 'select-options']"
+  @keydown.escape.window="dismiss($event)"
+>
+  <Button
+    type="button"
+    x-ref="trigger"
+    variant="ghost"
+    size="sm"
+    class={triggerClass}
+    disabled={disabled || !hasOptions}
+    :id="$id('select-trigger')"
+    :aria-controls="$id('select-options')"
+    :aria-expanded="open"
+    aria-haspopup="listbox"
+    @click="toggleOptions()"
+    @keydown.arrow-down.prevent="openOptions()"
+    @keydown.arrow-up.prevent="openOptions()"
+  >
+    <span x-text="label">{initialLabel}</span>
+    <Icon
+      name="tabler:chevron-down"
+      class="transition-transform"
+      :class="{ 'rotate-180': open }"
+      aria-hidden="true"
+    />
+  </Button>
+
+  <div
+    x-ref="options"
+    x-show="open"
+    x-cloak
+    :id="$id('select-options')"
+    :aria-labelledby="$id('select-trigger')"
+    role="listbox"
+    class={contentStyles({ side, align, class: contentClass })}
+    @keydown="handleOptionsKeydown($event)"
+    @click="handleOptionsClick($event)"
+    @click.outside="closeOptions(false)"
+  >
+    {groups === undefined ? (
+      <ul role="presentation" class="grid grid-cols-1 gap-px">
+        {flatOptions.map((option) => (
+          <SelectOptionItem
+            option={option}
+            initialValue={initialValue}
+            class={optionClass}
+          />
+        ))}
+      </ul>
+    ) : (
+      groupedOptions.map((group) => (
+        <div
+          role="group"
+          aria-label={group.label}
+          class="mt-2 first:mt-0"
+        >
+          <div aria-hidden="true" class="mb-1 ms-3 text-ai-sm text-muted-foreground">
+            {group.label}
+          </div>
+          <ul role="presentation" class="grid grid-cols-1 gap-px">
+            {group.options.map((option) => (
+              <SelectOptionItem
+                option={option}
+                initialValue={initialValue}
+                class={optionClass}
+              />
+            ))}
+          </ul>
+        </div>
+      ))
+    )}
+  </div>
+</div>

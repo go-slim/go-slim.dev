@@ -1,0 +1,61 @@
+---
+import { Icon } from "astro-icon/components"
+import Button from '#components/ui/button/index.astro'
+
+type Props = {
+  organization: string
+  project?: string
+  class?: string
+  layout?: 'icon' | 'row'
+  label?: string
+  newTabLabel?: string
+}
+
+const {
+  organization,
+  project,
+  class: className,
+  layout = 'icon',
+  label: visibleLabel = 'GitHub',
+  newTabLabel = 'opens in a new tab',
+} = Astro.props as Props
+
+const label = organization + (project ? `/${project}` : "")
+const href = `https://github.com/${label}`
+const accessibleLabel = `GitHub: ${label}`
+const classes = [
+  layout === 'row' &&
+    'h-auto min-h-11 w-full justify-start gap-3 px-2 py-2 text-sm hover:bg-accent has-[>svg]:px-2',
+  className,
+].filter((value): value is string => Boolean(value)).join(' ')
+---
+
+<Button
+  variant="ghost"
+  size={layout === 'icon' ? 'icon-sm' : 'sm'}
+  href={href}
+  target="_blank"
+  rel="noopener noreferrer"
+  class={classes}
+>
+  <Icon
+    is:inline
+    name="tabler:brand-github"
+    class:list={[layout === 'icon' ? 'size-5' : 'size-6', 'shrink-0']}
+    aria-hidden="true"
+  />
+  {layout === 'icon' ? (
+    <span class="sr-only">{accessibleLabel}. {newTabLabel}</span>
+  ) : (
+    <>
+      <span class="min-w-0 flex-1 text-start">{visibleLabel}</span>
+      <Icon
+        is:inline
+        name="tabler:external-link"
+        class="size-4 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span class="sr-only">{newTabLabel}</span>
+    </>
+  )}
+</Button>
