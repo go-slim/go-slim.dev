@@ -1,0 +1,74 @@
+---
+title: Why go-slim starts with the standard library
+description: A short introduction to go-slim's boundaries, trade-offs, and documentation path.
+publishedAt: 2026-08-06
+author: go-slim
+tags:
+  - announcement
+  - design
+---
+
+go-slim is a collection of focused Go packages for HTTP, data, and everyday tooling. The project starts with a simple premise: an abstraction should make a recurring decision easier without taking away the standard-library behavior that makes the decision understandable.
+
+## A library should solve a decision
+
+The useful unit of a library is not its number of functions. It is the decision it helps you make repeatedly.
+
+- [`h3`](/libraries/h3) gives an HTTP application a route tree, middleware composition, and an explicit lifecycle owner while keeping `net/http` handlers and request semantics visible.
+- [`binding`](/libraries/binding) turns request input into typed application data without deciding what the data means to your domain.
+- [`nego`](/libraries/nego) helps select a response representation from HTTP negotiation rules without choosing your API's error schema or renderer.
+
+These packages can be used together, but none of them requires the others. That is deliberate. A package that owns one boundary is easier to replace, test, and explain than a framework that owns the whole application.
+
+## Start with the smallest working shape
+
+Before adding a package, make the standard-library version of the task visible. A minimal HTTP service already tells us a great deal about ownership:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+)
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "ok")
+	})
+
+	log.Fatal(http.ListenAndServe(":8080", mux))
+}
+```
+
+The example is intentionally ordinary. When a go-slim package enters the program, you should still be able to see where requests are matched, where responses are written, and who owns shutdown. The package should reduce repeated wiring, not hide the behavior you need to debug.
+
+## Keep policy at the application boundary
+
+Libraries can provide mechanics; the application still owns policy. The application decides which fields are valid, which credentials are trusted, which business errors become `400` or `409`, and which response format is appropriate for a client.
+
+This boundary also makes migration safer. You can introduce one package into an existing `net/http` service, keep the current handlers, and replace the package later if its trade-offs no longer fit. The code remains connected by standard interfaces instead of a private framework vocabulary.
+
+<Callout type="info" title="Design principle">
+  Prefer an abstraction that can be removed without rewriting the application. If removing a package means replacing every handler, context, and response type, the boundary probably belongs too high in the stack.
+</Callout>
+
+## Read the documentation as a path
+
+The documentation follows the same boundary:
+
+1. **Overview** explains what a package is for, when it is a good fit, and what it intentionally does not do.
+2. **Guide** takes you from installation to a first observable result, then adds the common tasks in dependency order.
+3. **Advanced** explains lifecycle, concurrency, security, performance, and the costs of changing defaults.
+4. **Examples** provides copyable application shapes rather than isolated API demonstrations.
+5. **AI** provides machine-readable versions for tools that need to search or load the documentation as context.
+
+Start with the [library catalog](/libraries), or go directly to the [h3 guide](/libraries/h3/guide) if you are building an HTTP service.
+
+## What comes next
+
+This blog will record the decisions around the project: why a package has its current boundary, what changed when an implementation met real use, and which constraints are worth keeping visible. Release notes will describe observable changes; engineering notes will explain the reasoning behind them.
+
+If you are using a package and find a boundary unclear, that is useful feedback. Open an issue with the task you were trying to complete, the smallest example that shows the friction, and the behavior you expected. Clear problems lead to clearer APIs.
