@@ -1,0 +1,10 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"td">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<td class:list={["border-b border-border px-4 py-3 align-top", className]} {...rest}>
+  <slot />
+</td>

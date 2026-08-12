@@ -1,0 +1,13 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"th">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<th
+  class:list={["border-b border-border bg-muted px-4 py-3 text-start font-semibold", className]}
+  {...rest}
+>
+  <slot />
+</th>

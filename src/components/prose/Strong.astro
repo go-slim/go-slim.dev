@@ -1,0 +1,10 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"strong">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<strong class:list={["font-semibold", className]} {...rest}>
+  <slot />
+</strong>

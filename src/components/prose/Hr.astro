@@ -1,0 +1,8 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"hr">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<hr class:list={["my-10 border-t border-border", className]} {...rest} />

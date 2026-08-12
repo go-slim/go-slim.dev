@@ -1,0 +1,17 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"table">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<table
+  class:list={[
+    "my-6 w-full border-separate border-spacing-0 overflow-hidden rounded-lg border border-border text-sm leading-6",
+    "[&_tr:last-child_td]:border-b-0",
+    className,
+  ]}
+  {...rest}
+>
+  <slot />
+</table>

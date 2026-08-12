@@ -1,0 +1,10 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"li">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<li class:list={["my-1 ps-1 leading-7", className]} {...rest}>
+  <slot />
+</li>

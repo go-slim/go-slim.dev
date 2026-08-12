@@ -1,0 +1,10 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"ul">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<ul class:list={["my-4 list-disc ps-6", className]} {...rest}>
+  <slot />
+</ul>

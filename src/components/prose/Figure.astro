@@ -1,0 +1,17 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"figure">;
+const { class: className, ...rest } = Astro.props;
+---
+
+<figure
+  class:list={[
+    "my-6 overflow-hidden rounded-lg border border-border bg-card",
+    "[&_pre]:m-0 [&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent",
+    className,
+  ]}
+  {...rest}
+>
+  <slot />
+</figure>
