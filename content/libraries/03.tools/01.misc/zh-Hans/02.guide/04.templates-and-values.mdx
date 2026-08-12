@@ -1,0 +1,87 @@
+---
+title: 模板与值
+description: 对受控字符串插值，并理解泛型 zero、nil、pointer 和 range helper。
+---
+
+# 模板与值
+
+## Map 插值
+
+```go
+message, err := misc.Substitute(
+	"Hello {name}, your region is {region}.",
+	map[string]any{
+		"name":   "Alice",
+		"region": "eu-west",
+	},
+)
+```
+
+`Substitute` 使用 `{` 和 `}`；`Interpolate` 接受自定义 delimiter：
+
+```go
+path, err := misc.Interpolate(
+	"/users/{{id}}?page={{page}}",
+	"{{", "}}",
+	map[string]any{"id": 42, "page": 2},
+)
+```
+
+精确 map key 优先，其次是可选 `"*"` fallback；两者都没有时保留原 placeholder。Nil 不写内容。支持 string、byte、bool、number、支持 string/byte 的 pointer、`fmt.Stringer` 和可用 `%v` 输出的值。
+
+这是文本插值，不是 context-aware escaping。不能在缺少对应 encoder 时用不可信输入构建 SQL、shell command、HTML、URL 或 header。
+
+## 流式 tag resolution
+
+`Tmpl` 把 literal segment 写入 `io.Writer`，把每个完整 tag 交给 callback：
+
+```go
+var output strings.Builder
+_, err := misc.Tmpl("user={{id}}", "{{", "}}", &output,
+	func(w io.Writer, tag string) (int, error) {
+		if tag != "id" {
+			return 0, fmt.Errorf("unknown tag %q", tag)
+		}
+		return io.WriteString(w, "42")
+	},
+)
+```
+
+它在第一个 writer/callback error 处停止，并返回失败前报告的 byte count。未闭合 placeholder 保持 literal。Delimiter 非空、callback 非 nil 是应用契约。
+
+## Zero 与 nil
+
+```go
+zero := misc.Zero[time.Duration]()
+pointer := misc.Ptr(42)
+nilPointer := misc.Nil[int]()
+```
+
+`Ptr` 指向 value copy；copy 内 map/slice 等 reference-like value 仍共享底层状态。
+
+`IsZero` 会递归 dereference pointer：
+
+```go
+misc.IsZero(misc.Ptr(0))  // true
+misc.IsZero(misc.Ptr(42)) // false
+```
+
+`IsNil` 判断值本身是否为 nil-capable nil，不 dereference 非 nil pointer：
+
+```go
+misc.IsNil((*int)(nil)) // true
+misc.IsNil([]int{})     // false
+misc.IsNil(0)           // false
+```
+
+## 默认值与 ordered value
+
+```go
+name := misc.Coalesce("", configuredName, "default")
+lower, upper := misc.MinMax(maximum, minimum)
+bounded := misc.Clamp(input, minimum, maximum)
+```
+
+`Coalesce` 按 `IsZero` 返回第一个非零值，因此指向零值的非 nil pointer 也会被跳过。当 presence 与 value 含义不同时，这可能是错误语义，应改用 option type 或显式 boolean。
+
+`MinMax` 与 `Clamp` 接受 `cmp.Ordered`，`Clamp` 会自动交换反向 bound。Floating-point NaN 遵循 Go comparison behavior，helper 不会规范化它。

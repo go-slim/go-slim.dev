@@ -1,0 +1,64 @@
+---
+title: HTTP queries and stream
+description: Expose read-only JSON queries and bounded NDJSON change notifications from local storage.
+---
+
+# HTTP queries and stream
+
+`go-slim.dev/tracing/http` (package name `tracinghttp`) adapts a storage engine to a standard `http.Handler`:
+
+```go
+traces := tracinghttp.NewHandler(
+	engine,
+	tracinghttp.WithStreamNotifyInterval(500*time.Millisecond),
+	tracinghttp.WithStreamPendingLimit(4096),
+)
+
+adminMux.Handle("/observability/", http.StripPrefix("/observability", traces))
+```
+
+It provides JSON/NDJSON only—no UI, write API, authentication, authorization, CORS, or application response envelope.
+
+## Endpoints
+
+| Endpoint | Result |
+| --- | --- |
+| `GET /traces` | Filtered trace summaries with stable cursor pagination |
+| `GET /traces/{trace_id}` | One trace and its local attributes |
+| `GET /traces/{trace_id}/spans` | Spans ordered by start time and ID |
+| `GET /traces/{trace_id}/timeline` | Event/log timeline, optionally filtered by span |
+| `GET /events/{event_id}` | Event details |
+| `GET /events/{event_id}/traces` | Traces triggered by an event |
+| `GET /services` | Current and daily service health projections |
+| `GET /services/{service}/samples` | Stored samples for a service/day |
+| `GET /stream` | NDJSON trace-summary and health changes |
+
+Trace filters include `cursor`, `limit`, `from`, `to`, `min_level`, `service`, and `q`. Span/timeline pages use `cursor` and `limit`; timeline also accepts `span_id`. Services accept repeated `service`, `days`, `after`, and `limit`; samples require `day`.
+
+Use the returned opaque `next_cursor` unchanged with the same query. Cursors bind to query/order semantics and invalid or mismatched values return a client error. Page limits default to 100 and cannot exceed 500.
+
+## Stream protocol
+
+`/stream` uses `application/x-ndjson`. The first message is:
+
+```json
+{"type":"ready","revision":42}
+```
+
+Later messages are `patch` or `heartbeat`; terminal internal failures may send `error`. A connection has bounded pending unique changes. When it falls behind, patches can request `reload_traces` or `reload_services` instead of retaining unlimited detail.
+
+To avoid a snapshot/stream race:
+
+1. connect to `/stream` and receive `ready` with its revision;
+2. fetch the current JSON snapshot;
+3. apply subsequent patches, reloading the requested view when a reload flag appears.
+
+The stream has server-side heartbeat, write timeout, and maximum lifetime. Clients must reconnect and re-query; it is a live invalidation channel, not durable event delivery.
+
+## Avoid self-generated traces
+
+Exclude these read endpoints from the application's request-tracing middleware. Otherwise every observability query creates a new trace and live readers can generate a feedback loop.
+
+## Mount securely
+
+Observation attributes, log details, service names, and search results can expose business or personal data. Put the handler behind internal routing and authorization, apply response compression carefully for streaming, and configure proxy buffering off for NDJSON where needed.

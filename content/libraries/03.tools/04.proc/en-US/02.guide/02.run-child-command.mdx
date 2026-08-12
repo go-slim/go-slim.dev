@@ -1,0 +1,51 @@
+---
+title: Run a child command
+description: Set a directory, environment, input, and bounded execution time for an external command.
+---
+
+# Run a child command
+
+## Minimum useful example
+
+```go
+err := proc.Exec(ctx, proc.ExecOptions{
+	Command: "go",
+	Args:    []string{"test", "./..."},
+	WorkDir: "./service",
+	Env:     []string{"GOFLAGS=-count=1"},
+	Timeout: 2 * time.Minute,
+	TTK:     2 * time.Second,
+})
+if err != nil {
+	return fmt.Errorf("test service: %w", err)
+}
+```
+
+`Command` and `Args` go directly to `exec.CommandContext`; no shell is started automatically. Invoke `sh -c` or the platform shell only when shell syntax is truly required, and never concatenate untrusted input into a shell command.
+
+## Actual option semantics
+
+| Option | Current behavior |
+| --- | --- |
+| `WorkDir` | Empty uses the working directory captured when `proc` initialized |
+| `Env` | Appended to `os.Environ()` |
+| `Stdin` | Connected to the child when non-nil |
+| `Timeout` | Creates an internal timeout context |
+| `TTK` | Sets `exec.Cmd.WaitDelay` |
+| `OnStart` | Called synchronously after a successful start |
+
+<Callout type="danger" title="Current cancellation is not graceful termination">
+  `Exec` replaces the default `exec.CommandContext` kill callback. In the current version, `Timeout` alone does not guarantee child termination; also set a positive `TTK` as a hard upper bound. `TTK` maps to `WaitDelay` and does not mean the child first receives an interrupt it can handle.
+</Callout>
+
+## Output and errors
+
+<Callout type="warning" title="Stdout and Stderr options are not honored yet">
+  Although `ExecOptions` declares `Stdout` and `Stderr`, the current implementation unconditionally connects the child to `os.Stdout` and `os.Stderr`. Use `os/exec` directly when output must be captured, hidden, or parsed.
+</Callout>
+
+`Exec` adds context with `%w` around start failures, context cancellation/timeouts, and non-zero exits. For ordinary command failures, callers can attempt to recover `*exec.ExitError` with `errors.As`. Use `os/exec` directly when exact cancellation, signal, and I/O ownership must remain explicit.
+
+## Platform differences
+
+On Unix, the command receives `Setpgid: true`. Windows receives no extra process attributes. This is not a complete cross-platform process-tree cleanup guarantee; integration-test commands that spawn descendants on each target platform.

@@ -1,0 +1,66 @@
+---
+title: 生产运维
+description: 协调 lifecycle、retention、诊断、命名、敏感数据与失败行为。
+---
+
+# 生产运维
+
+应把 tracing 作为有明确启停的 best-effort subsystem，而不是失败后控制业务 availability 的隐藏 global。
+
+## 启动顺序
+
+1. Open storage engine 并取得目录锁。
+2. 启动 `Engine.RunWithReady` 并等待 readiness。
+3. 注册受保护 HTTP query route。
+4. 启动带埋点的 request handler、queue 和后台组件。
+
+等待 readiness 可以避免早期 lifecycle record 的无谓丢失。如果 storage 是 optional，应明确 degraded mode，例如 discard handler 或不启动 collector；不能意外启动两个 runner。
+
+## 关闭顺序
+
+1. 停止接收新业务 request 和 job。
+2. 等待业务 goroutine 完成并结束 span。
+3. Cancel engine runner。
+4. 等待 `Run` drain 并返回；context cancellation 是正常结果。
+5. 需要时调用 `Engine.Sync`，最后 `Engine.Close`。
+
+Collection loop 退出前关闭 storage，会让 final drain 变成 handler error 和 dropped batch。
+
+## 容量与 retention
+
+估算 record rate、平均 attribute/detail size、query horizon 和 disk budget，并监控 `Engine.Stats`：
+
+- physical bytes 是否接近 high watermark；
+- dead bytes 是否说明有 compaction 机会；
+- segment count 与 cleanup progress；
+- trace/span/event/log count 与 service cardinality。
+
+高基数 span name、service name 和 attribute value 会降低 storage/query 可用性。Operation 与 `what` name 保持稳定；变化值放入大小受控的 attribute。
+
+## 敏感数据
+
+Attribute 与 log detail 都是应用数据。不要记录 credential、authorization header、session cookie、完整 request/job body、payment data 或无界 user input。优先使用内部 ID 或脱敏引用，并让 retention 符合数据策略。
+
+HTTP layer 需要独立于业务应用的 authorization；只有“内部网络”未必足够。
+
+## 诊断
+
+Collection congestion、handler panic/error、cleanup failure、observer panic 与 HTTP internal error 都通过 `log/slog` 报告。应把它接入应用 operational logger，并对重复报告告警。
+
+因为诊断刻意不回写 tracing，排查 observation 缺失时应同时检查两个 channel。
+
+## 埋点 review
+
+- 每个入口边界启动一个 trace 和一个 root span。
+- 每个 span 在所有路径结束，child 先于 parent 结束。
+- 并发操作使用独立 child span。
+- Async boundary 持久化 `EventID` 并启动新 trace。
+- Log builder 只完成一次。
+- 只有应影响 health projection 的 log 才设置 Service。
+- 关键业务事实继续持久化在 tracing 外部。
+
+## 测试
+
+使用小型内存 `HandlerFunc` 断言 name、attribute 和 relationship。执行代码前带 readiness 启动，保留 batch data 前 clone，producer 停止后再 cancel，并在测试中容忍异步 batching interval。
+
+源码套件使用 `go test ./...`；修改 span ownership、handler、storage observer 或 live-stream 行为时再运行 `go test -race ./...`。

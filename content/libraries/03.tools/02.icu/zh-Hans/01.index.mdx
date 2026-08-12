@@ -1,0 +1,34 @@
+---
+title: icu
+sidebarTitle: 概览
+description: 了解 ICU 风格消息的解析、渲染模型与当前可用性。
+icon: language
+---
+
+# icu
+
+`go-slim.dev/icu` 的目标是把带参数、数字/日期格式与条件分支的消息解析为 AST，再按 locale 渲染。这种模型适合把语法错误与每次请求的变量替换分开。
+
+<Callout type="danger" title="当前源码尚不适合集成">
+  在源码版本 `f97e402` 上，`go.mod` 没有声明已导入的
+  `golang.org/x/text/language`，因此原始 checkout 无法通过 `go test ./...`。
+  手动补上依赖后，简单变量 `{name}` 仍被渲染为 `&lt;nil&gt;`，复数变量会因 nil 转换失败。在这两个问题修复并加入测试前，不建议用于生产或新项目。
+</Callout>
+
+## 文档怎么读
+
+当前文档不把未通过验证的 README 输出当作可用承诺。它分为三层：
+
+1. [集成前检查](/zh-Hans/libraries/icu/guide/integration-readiness) 列出必须先修复和验证的阻断项。
+2. [消息模型](/zh-Hans/libraries/icu/guide/message-model) 解释预期的 parse-once/render-many 使用方式。
+3. [格式化、扩展与边界](/zh-Hans/libraries/icu/advanced/formatting-and-extension) 说明 locale、plural、context 与自定义 formatter 的实际语义。
+
+## 什么时候再采用
+
+至少要求：模块能在干净 checkout 中构建；简单变量、缺失变量、select、plural、number、date 和并发渲染有可执行测试；支持的语法与“完整 ICU MessageFormat”明确区分。
+
+在此之前，需要成熟 ICU MessageFormat 兼容性的系统应选择有规范符合性测试的实现；只需少量固定参数时，标准库格式化加应用自己的翻译表更可控。
+
+<Callout type="info" title="设计思想">
+  “先 parse，后 render”是合理的边界：可以在加载翻译资源时暴露语法错误，请求阶段只提供变量。但 AST 架构本身不能代替渲染正确性、locale 规则和并发测试。
+</Callout>

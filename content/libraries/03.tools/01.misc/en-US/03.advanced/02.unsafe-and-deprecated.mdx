@@ -1,0 +1,68 @@
+---
+title: Unsafe and deprecated APIs
+description: Use zero-copy aliases only with strict ownership and replace deprecated MIME and stack helpers.
+---
+
+# Unsafe and deprecated APIs
+
+## Byte slice to string
+
+```go
+text := misc.BytesToString(data)
+```
+
+This uses `unsafe.String` and does not allocate. The string aliases the byte slice. Mutating `data` while `text` is observable violates normal string immutability assumptions and can corrupt map keys, caches, logs, or concurrent readers.
+
+Use `string(data)` when the string needs independently owned immutable storage.
+
+## String to byte slice
+
+```go
+data := misc.StringToBytes(text)
+```
+
+This uses `unsafe.StringData`/`unsafe.Slice` and returns a slice that aliases string storage. Treat it as read-only. Writing can mutate supposedly immutable data or fault when storage is read-only.
+
+Use `[]byte(text)` whenever a consumer may mutate or retain the bytes independently.
+
+<Callout title="Ownership rule">
+  Zero-copy is safe only when source lifetime exceeds every alias, no forbidden
+  mutation occurs, and concurrent access is synchronized. Document that contract
+  next to the call and use it only after profiling shows the allocation matters.
+</Callout>
+
+## Deprecated MIME helpers
+
+`ExtensionByType`, `TypeByExtension`, and `CharsetByType` are deprecated. Their built-in mappings and fallback behavior are not a substitute for parsing or content detection.
+
+Use standard-library APIs:
+
+```go
+mediaType, params, err := mime.ParseMediaType(value)
+extensionType := mime.TypeByExtension(".json")
+extensions, err := mime.ExtensionsByType("image/png")
+```
+
+Use a dedicated content-sniffing package when identifying bytes rather than interpreting declared metadata. `CharsetByType` merely returns `charset=utf-8` for strings beginning with `text/`; it does not parse parameters.
+
+## Deprecated Stack
+
+`Stack(skip)` walks callers and may read source files to include source lines. It is slower and less portable than standard facilities. Prefer:
+
+```go
+stack := debug.Stack()
+
+buffer := make([]byte, 64<<10)
+n := runtime.Stack(buffer, true)
+buffer = buffer[:n]
+```
+
+Bound stack capture and avoid returning internal paths or source content to clients. Stack traces belong in controlled diagnostics.
+
+## Review checklist
+
+- Replace unsafe conversions when aliases cross API or goroutine ownership boundaries.
+- Never mutate bytes returned by `StringToBytes`.
+- Never retain `BytesToString` output after the backing buffer is reused.
+- Replace deprecated MIME helpers before relying on platform-specific mappings.
+- Keep stack data out of public responses and redact sensitive values around it.

@@ -1,0 +1,93 @@
+---
+title: Context and concurrency
+description: Propagate only valid span trees and give each concurrent operation explicit ownership.
+---
+
+# Context and concurrency
+
+Tracing state is stored in `context.Context`, but the package deliberately rejects ambiguous tree changes. Context carries the current trace and optional current span; it does not create either implicitly.
+
+## Read optional boundaries
+
+```go
+trace, hasTrace := tracing.TraceFromContext(ctx)
+span, hasSpan := tracing.SpanFromContext(ctx)
+```
+
+Use optional reads in reusable adapters. Use `MustTrace` or `MustSpan` only inside a boundary whose contract guarantees instrumentation; missing state then indicates a programmer error and panics.
+
+All context APIs require non-nil contexts.
+
+## Root and child spans
+
+`OpenSpan` creates a root span only when the context contains a trace and no current span:
+
+```go
+ctx, _ = tracer.Start(ctx)
+ctx, root, err := tracing.OpenSpan(ctx, "order.submit")
+```
+
+It returns `ErrTraceNotFound` when no trace exists and `ErrSpanAlreadyOpen` when a span is already current. Inside an existing operation, create a direct child:
+
+```go
+childCtx, child := tracing.StartChild(ctx, "inventory.reserve")
+defer child.End()
+
+return reserve(childCtx)
+```
+
+`StartChild` panics if no open span is present. The lower-level equivalent is `parent.Child` followed by `ContextWithSpan`.
+
+`ContextWithSpan` rejects a different trace, sibling binding, skipped parents, and ended spans. These checks prevent a context from claiming a tree relationship that was never created.
+
+## Goroutine ownership
+
+The goroutine that creates a span owns `End`. Parent spans must outlive every child. Do not call `End` concurrently with `Event`, log building, or child creation.
+
+Concurrent work should get separate child spans:
+
+```go
+group, groupCtx := errgroup.WithContext(ctx)
+for _, item := range items {
+	item := item
+	child := root.Child("item.process", tracing.String("item_id", item.ID))
+	childCtx := tracing.ContextWithSpan(groupCtx, child)
+
+	group.Go(func() error {
+		defer child.End()
+		return process(childCtx, item)
+	})
+}
+if err := group.Wait(); err != nil {
+	return err
+}
+```
+
+Create and bind each child before starting its goroutine, and wait before ending the parent.
+
+## Detach cancellation without sharing ownership
+
+`InjectContext(base, source)` copies only tracing state; it does not copy deadlines, cancellation, or unrelated values. It requires an empty base and a source with a span:
+
+```go
+detached := tracing.InjectContext(context.Background(), sourceCtx)
+```
+
+This is suitable only when code needs the same current span and that span will remain open. If work runs concurrently or outlives the caller, create a child span or start a new trace instead.
+
+For a durable queue or process boundary, emit an event, persist its `EventID`, and use `StartFromEvent` in the consumer. This records causality without carrying request cancellation or writing to a span that has already ended.
+
+## End and builder behavior
+
+`Span.End` is idempotent; only the first call records the end time. Once ended, new children, events, and logs panic.
+
+`Logging` is a one-shot builder. After `Log` or `Logf`, any reuse panics, and it must not be shared between goroutines:
+
+```go
+span.Info("invoice.sent").
+	Service("billing").
+	String("invoice_id", id).
+	Log("invoice delivered")
+```
+
+Keep the entire builder chain local to one statement or goroutine.

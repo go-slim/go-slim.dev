@@ -1,0 +1,42 @@
+---
+title: 生命周期与平台边界
+description: 理解 proc 的启动快照、全局状态、测试隔离和平台差异。
+---
+
+# 生命周期与平台边界
+
+## 进程信息是导入时快照
+
+`Pid`、`Name` 和 `WorkDir` 在 package init 时记录。`Path` 与 `Pathf` 基于这个工作目录做词法拼接：
+
+```go
+configPath := proc.Path("config", "app.yaml")
+```
+
+如果应用之后调用 `os.Chdir`，`proc.WorkDir()` 不会随之更新。`Path` 也不会检查文件存在、路径授权或 symlink 边界。
+
+`Context()` 当前返回一个全局 `context.Background()`，不会在收到退出信号时自动取消。需要可传播的退出 context 时，应在应用入口自行创建并传递。
+
+## 全局状态只在启动阶段配置
+
+listener 注册表内部有锁，但 `Logger` 和强制退出延迟是 package-level 状态。在启动时设置完成，不要一边处理信号一边更换它们。
+
+```go
+proc.Logger = io.Discard
+proc.SetTimeToForceQuit(10 * time.Second)
+```
+
+## 测试终止行为
+
+`Shutdown` 的 kill hook 没有对包外导出。应用级测试不应在主测试进程中直接调用 `Shutdown`；在 helper subprocess 中运行，再由父测试断言退出码、日志和时间上限。
+
+## 平台约束
+
+- Unix 使用 `syscall.Signal`、process group 和向当前 PID 发信号。
+- Windows 的 child command 不设置额外进程属性，`Shutdown` 忽略传入 signal 并调用 process kill。
+- 常见 Unix signal 和 Windows 行为不对等；在支持的目标平台上分别测试。
+
+<Callout type="info" title="更中立的选择">
+  如果你需要由 `main` 显式持有和取消生命周期，标准库
+  `signal.NotifyContext` + `context` + `os/exec` 会更冗长，但所有权、测试和 I/O 语义更清晰。
+</Callout>

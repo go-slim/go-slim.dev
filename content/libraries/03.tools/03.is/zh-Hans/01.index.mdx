@@ -1,0 +1,54 @@
+---
+title: is
+sidebarTitle: 概览
+description: 用只返回 bool 的小型谓词检查用户输入与常见格式。
+icon: search
+---
+
+# is
+
+`go-slim.dev/is` 提供一组零依赖的布尔谓词。它适合在普通 Go 控制流中回答“这个值是否符合某个格式”，不会引入结构体标签、错误翻译或框架级验证模型。
+
+```sh
+go get go-slim.dev/is
+```
+
+当前模块要求 Go 1.24 或更高版本。
+
+## 先完成一次输入检查
+
+```go
+func validateSignup(email, timezone string) error {
+	if !is.NotEmpty(email) {
+		return errors.New("email is required")
+	}
+	if !is.Email(email) {
+		return errors.New("email has an invalid format")
+	}
+	if !is.Timezone(timezone) {
+		return errors.New("timezone must be an IANA name")
+	}
+	return nil
+}
+```
+
+`is` 只回答 `true` 或 `false`。字段名、错误文案、是否聚合多个错误，以及使用哪个 HTTP 状态码，都由应用决定。
+
+## 什么时候适合
+
+| 任务 | 选择 |
+| --- | --- |
+| 一两个字段的格式或范围检查 | 直接组合 `is` 谓词 |
+| 检查 IP、UUID、时区、颜色或编码形式 | 使用对应的特定谓词 |
+| 需要结构体标签、嵌套规则和错误聚合 | 选择完整的 validation 库 |
+| 需要验证 JWT 签名、URL 目标安全或证件真实性 | 使用领域库和业务规则 |
+
+## 渐进阅读
+
+- [校验用户输入](/zh-Hans/libraries/is/guide/validate-user-input)：组合必填、格式、枚举与长度检查。
+- [查找合适的谓词](/zh-Hans/libraries/is/guide/find-a-predicate)：按任务快速定位 API。
+- [语义与安全边界](/zh-Hans/libraries/is/advanced/semantics-and-security)：理解“格式像”与“真实可信”的区别。
+
+<Callout type="info" title="设计取舍">
+  谓词只返回 `bool` 让调用点很轻，也意味着它不会告诉你失败原因。面向用户的错误应由最了解业务语境的应用层生成。
+</Callout>

@@ -1,0 +1,58 @@
+---
+title: Message model
+description: Understand the intended parse-once, render-many integration model after the blockers are fixed.
+---
+
+# Message model
+
+<Callout type="warning" title="This is the intended contract">
+  Because the current revision has integration blockers, this page explains the model a fixed version should preserve. It does not claim that the current code produces the example output.
+</Callout>
+
+## Parse while loading resources
+
+```go
+message, err := icu.Parse("Hello, {name}!")
+if err != nil {
+	return fmt.Errorf("parse greeting translation: %w", err)
+}
+
+renderer := icu.New(language.English)
+```
+
+`Parse` returns an `*ast.Message`. Handle syntax failures at startup or translation-resource loading rather than repeatedly parsing the same message in every request.
+
+## Supply variables per request
+
+```go
+text, err := renderer.Render(ctx, message, map[string]any{
+	"name": displayName,
+})
+if err != nil {
+	return fmt.Errorf("render greeting: %w", err)
+}
+```
+
+The intended simple placeholder is `{name}`. A missing variable should return an error instead of silently preserving the placeholder or inserting an empty string.
+
+## Select branches
+
+```text
+{role, select, owner{Owner} member{Member} other{Guest}}
+```
+
+`select` compares the string representation of a variable and takes the first matching case. In the current implementation, `other` is also an ordinary ordered branch, so place it last.
+
+```text
+{count, plural, =0{No items} =1{One item} other{Many items}}
+```
+
+Current plural categories are global handwritten rules rather than locale-specific ICU CLDR rules. Prefer explicit `=0` and `=1` branches whose business meaning is known, and do not rely on `one/few/many` until the locale contract is completed.
+
+<Callout type="warning" title="# is not substituted in plural cases yet">
+  `PluralFormatter` currently returns case text without replacing `#` with the count. Even after variable shadowing is fixed, `other{# items}` needs a separate fix and test.
+</Callout>
+
+## What the resource layer still owns
+
+The application must manage source messages by locale and key, parse failures, and fallback policy. `icu` handles one message AST and rendering; it currently provides no catalog loading, locale negotiation, hot reload, or missing-key policy.

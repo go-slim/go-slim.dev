@@ -1,0 +1,37 @@
+---
+title: Formatting, extension, and boundaries
+description: Understand default formatters, locale providers, percent semantics, context, and concurrent configuration.
+---
+
+# Formatting, extension, and boundaries
+
+## Use `New` unless you need an empty configuration
+
+`icu.New(tag)` registers `number`, `date`, `time`, `plural`, `select`, `ordinal`, and `duration`. `NewRenderer(tag)` creates an empty context without those default formatters.
+
+```go
+renderer := icu.New(language.English)
+```
+
+## Locale support is a formatter-provider set, not full ICU rules
+
+Current built-in provider keys are `zh`, `en`, `es`, `fr`, `de`, `it`, `pt`, `ru`, `ja`, and `ko`. Unmatched languages fall back to the English provider. Providers cover date, time, currency naming, and ordinal output, while plural selection currently does not consult the locale.
+
+<Callout type="warning" title="Do not infer a contract from README output">
+  Number formatting is custom code, not CLDR-backed `x/text/message` output. Grouping, currency, significant digits, and locale results need golden tests before becoming stable promises.
+</Callout>
+
+## Semantics that must be explicit
+
+- Percent formatting divides the input by 100 and then multiplies inside the formatter, so input `75` represents `75%`. The README example claiming `0.75` becomes `75%` does not match the code.
+- Invalid `timeZone` options in `date` and `time` are silently ignored. Validate time zones while loading translations.
+- `Render` accepts a `context.Context`, but the current code never observes cancellation or deadlines.
+- `duration` can panic for some numeric types other than `int64`/`float64`; use `time.Duration` or a duration string until conversion is fixed and covered.
+
+## Custom formatters
+
+`RegisterSpecialFormatter`, `SetSimpleFormatter`, and `SetUnknownFormatter` mutate renderer context configuration. A `SpecialFormatter` reads variables and locale from `Context`, and args/options/cases from `ast.Placeholder`.
+
+<Callout type="warning" title="Configure at startup, then read only">
+  Formatter registries are ordinary maps without synchronization. Complete registration during startup before sharing a renderer with goroutines; never mutate formatters while rendering. A fixed version should still validate this pattern with `go test -race`.
+</Callout>

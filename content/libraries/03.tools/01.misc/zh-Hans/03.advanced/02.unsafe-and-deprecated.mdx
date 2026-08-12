@@ -1,0 +1,67 @@
+---
+title: Unsafe 与 deprecated API
+description: 只在严格所有权下使用 zero-copy alias，并替换 deprecated MIME 与 stack helper。
+---
+
+# Unsafe 与 deprecated API
+
+## Byte slice 转 string
+
+```go
+text := misc.BytesToString(data)
+```
+
+它使用 `unsafe.String`，不分配内存。返回 string 与 byte slice alias。同一时间修改 `data` 会违反通常的 string immutability 假设，并可能破坏 map key、cache、log 或 concurrent reader。
+
+需要独立 immutable storage 时使用 `string(data)`。
+
+## String 转 byte slice
+
+```go
+data := misc.StringToBytes(text)
+```
+
+它使用 `unsafe.StringData`/`unsafe.Slice`，返回与 string storage alias 的 slice。必须视为只读；写入可能改变本应 immutable 的数据，或在 storage 只读时触发 fault。
+
+Consumer 可能修改或独立保留 bytes 时使用 `[]byte(text)`。
+
+<Callout title="所有权规则">
+  只有 source lifetime 长于全部 alias、不发生非法 mutation、并发访问有同步时，
+  zero-copy 才安全。应在调用旁记录契约，并且只在 profiling 证明 allocation 有影响后使用。
+</Callout>
+
+## Deprecated MIME helper
+
+`ExtensionByType`、`TypeByExtension` 与 `CharsetByType` 已 deprecated。它们的内置映射和 fallback 不能替代 parsing 或 content detection。
+
+使用标准库 API：
+
+```go
+mediaType, params, err := mime.ParseMediaType(value)
+extensionType := mime.TypeByExtension(".json")
+extensions, err := mime.ExtensionsByType("image/png")
+```
+
+需要从字节识别内容时使用专用 content-sniffing package。`CharsetByType` 只是对以 `text/` 开头的字符串返回 `charset=utf-8`，不会解析 parameter。
+
+## Deprecated Stack
+
+`Stack(skip)` 遍历 caller，并可能读取 source file 加入源代码行，比标准能力慢且可移植性更差。优先使用：
+
+```go
+stack := debug.Stack()
+
+buffer := make([]byte, 64<<10)
+n := runtime.Stack(buffer, true)
+buffer = buffer[:n]
+```
+
+应限制 stack capture 大小，也不能向 client 返回内部 path 或 source content。Stack trace 只应进入受控诊断。
+
+## Review checklist
+
+- Alias 跨 API 或 goroutine ownership boundary 时移除 unsafe conversion。
+- 永远不要修改 `StringToBytes` 返回值。
+- Backing buffer 会复用时不能保留 `BytesToString` 输出。
+- 依赖 platform-specific mapping 前替换 deprecated MIME helper。
+- Public response 不包含 stack data，并对周边敏感值脱敏。

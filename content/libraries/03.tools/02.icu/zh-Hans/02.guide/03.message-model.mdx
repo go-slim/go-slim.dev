@@ -1,0 +1,58 @@
+---
+title: 消息模型
+description: 了解修复后预期的 parse-once、render-many 集成流程。
+---
+
+# 消息模型
+
+<Callout type="warning" title="以下是预期契约">
+  由于当前版本存在集成阻断项，本页用于解释修复后应当保持的使用模型，不代表当前代码已能产生示例输出。
+</Callout>
+
+## 在加载阶段解析
+
+```go
+message, err := icu.Parse("Hello, {name}!")
+if err != nil {
+	return fmt.Errorf("parse greeting translation: %w", err)
+}
+
+renderer := icu.New(language.English)
+```
+
+`Parse` 将消息转为 `*ast.Message`。应在启动或翻译资源加载阶段处理语法错误，而不是在每个请求里重复解析同一条消息。
+
+## 在请求阶段提供变量
+
+```go
+text, err := renderer.Render(ctx, message, map[string]any{
+	"name": displayName,
+})
+if err != nil {
+	return fmt.Errorf("render greeting: %w", err)
+}
+```
+
+预期的简单占位符为 `{name}`。缺失变量应返回 error，而不是静默保留占位符或使用空字符串。
+
+## 选择分支
+
+```text
+{role, select, owner{Owner} member{Member} other{Guest}}
+```
+
+`select` 根据变量的字符串表示从前到后选择第一个匹配 case。`other` 在当前实现中也是普通顺序分支，应放在最后。
+
+```text
+{count, plural, =0{No items} =1{One item} other{Many items}}
+```
+
+当前 plural 规则并非 locale-specific ICU CLDR 规则，而是一组全局手写分支。请优先使用 `=0`、`=1` 这类业务可确定的精确分支，并等待 locale 契约完善后再依赖 `one/few/many`。
+
+<Callout type="warning" title="# 尚未在 plural 中替换">
+  当前 `PluralFormatter` 会直接返回 case 文本，不会把 `#` 替换为 count。即使变量遮蔽问题修复，`other{# items}` 也仍需要单独修复和测试。
+</Callout>
+
+## 资源层负责什么
+
+应用应在 locale + message key 维度管理翻译源文本、parse error 与 fallback 策略。`icu` 只处理一条消息的 AST 和渲染，当前不提供 catalog 加载、locale negotiation、hot reload 或缺失 key 策略。

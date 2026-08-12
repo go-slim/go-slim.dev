@@ -1,0 +1,53 @@
+---
+title: Integration readiness
+description: Verify module integrity, basic rendering, the supported syntax subset, and concurrency before adopting icu.
+---
+
+# Integration readiness
+
+The current source should not be added directly as an application dependency. Fix the blockers first, then assess adoption with user-visible behavior.
+
+## Two current blockers
+
+### 1. Incomplete module dependencies
+
+The source imports `golang.org/x/text/language`, but `go.mod` only declares the module path and Go version. In a clean checkout:
+
+```sh
+go test ./...
+```
+
+fails because the module requirement is missing. The library must fix this in its own `go.mod`/`go.sum`; every consumer should not have to repair it.
+
+### 2. Rendering shadows caller variables
+
+`Renderer.renderPlaceholder` creates a child context containing `{placeholderName: nil}` before invoking a formatter. That nil value shadows the real caller-supplied value. A smoke test produces:
+
+```text
+"Hello, {name}!" + name="World" -> "Hello, <nil>!"
+plural(count=5)                  -> cannot convert nil to a number
+```
+
+## Required contract tests after the fix
+
+| Capability | Minimum coverage |
+| --- | --- |
+| Parsing | Valid text, unclosed placeholder, nested case, whitespace preservation |
+| Variables | String, number, nil, missing key, nested same-name variable |
+| Branches | `select`, exact plural, `other` fallback, `#` substitution |
+| Formatting | Number, currency, percent, date, time zone, duration |
+| Locale | Golden output for every claimed locale |
+| Concurrency | Shared-renderer concurrent Render under the race detector |
+| Context | Consume cancellation/deadline, or remove that API promise |
+
+```sh
+go test -race ./...
+```
+
+## Compilation is not acceptance
+
+Defects in a message library become user-visible text. Acceptance must cover output, error contracts, and locale rules—not merely whether packages compile.
+
+<Callout type="warning" title="Narrow the claim before release">
+  The current code is a custom ICU-style syntax subset. It should not claim full ICU MessageFormat support without specification conformance tests.
+</Callout>

@@ -1,0 +1,54 @@
+---
+title: is
+sidebarTitle: Overview
+description: Check user input and common formats with small predicates that only return bool.
+icon: search
+---
+
+# is
+
+`go-slim.dev/is` provides dependency-free Boolean predicates for answering questions such as “does this value have the expected shape?” in ordinary Go control flow. It does not introduce struct tags, translated errors, or a framework-level validation model.
+
+```sh
+go get go-slim.dev/is
+```
+
+The current module requires Go 1.24 or later.
+
+## Complete one input check first
+
+```go
+func validateSignup(email, timezone string) error {
+	if !is.NotEmpty(email) {
+		return errors.New("email is required")
+	}
+	if !is.Email(email) {
+		return errors.New("email has an invalid format")
+	}
+	if !is.Timezone(timezone) {
+		return errors.New("timezone must be an IANA name")
+	}
+	return nil
+}
+```
+
+`is` only answers `true` or `false`. Your application owns field names, error messages, error aggregation, and HTTP status codes.
+
+## When it fits
+
+| Task | Choose |
+| --- | --- |
+| Check the format or range of one or two fields | Compose `is` predicates directly |
+| Detect IP, UUID, time zone, color, or encoding shapes | Use a specific predicate |
+| Need struct tags, nested rules, and error aggregation | Choose a full validation library |
+| Verify a JWT signature, URL target safety, or real-world identity | Use a domain verifier and business rules |
+
+## Read progressively
+
+- [Validate user input](/libraries/is/guide/validate-user-input) composes required, format, enum, and length rules.
+- [Find a predicate](/libraries/is/guide/find-a-predicate) locates APIs by task.
+- [Semantics and security](/libraries/is/advanced/semantics-and-security) separates “has this shape” from “is authentic and safe.”
+
+<Callout type="info" title="Design trade-off">
+  Returning only `bool` keeps call sites light, but it also means the predicate cannot explain why it failed. User-facing errors belong in the application layer that understands the business context.
+</Callout>

@@ -1,0 +1,75 @@
+---
+title: tracing
+sidebarTitle: Overview
+description: In-process business observability with traces, spans, events, logs, storage, and HTTP query APIs.
+icon: shield
+---
+
+# tracing
+
+`go-slim.dev/tracing` is an in-process observability library for Go business code. It provides traces, spans, events, structured business logs, bounded non-blocking collection, local segmented storage, and standard `net/http` query and live-stream interfaces.
+
+<Callout title="Not OpenTelemetry">
+  tracing is not an OpenTelemetry or W3C Trace Context implementation. It does
+  not provide cross-process propagation, remote exporters, sampling protocols,
+  or metrics collection.
+</Callout>
+
+## Install
+
+```sh
+go get go-slim.dev/tracing
+```
+
+The root package depends only on the standard library. `tracing/storage` and `tracing/http` add storage and query surfaces.
+
+## Package direction
+
+The dependency direction is deliberate:
+
+```text
+business -> tracing <- tracing/storage <- tracing/http
+```
+
+Business code imports the root package and emits observations. Storage consumes batches through the handler boundary. HTTP reads the storage engine and exposes query/stream endpoints.
+
+## What it records
+
+```text
+Tracer.Start
+└── Trace
+    └── Span
+        ├── Span
+        ├── Event
+        └── Log
+```
+
+Use tracing when an application needs local, business-level observability around HTTP requests, queue jobs, background workers, or domain workflows.
+
+## Good fit
+
+tracing is useful when the question is business-oriented:
+
+- Which operation triggered this background job?
+- Which span produced this domain event?
+- Which service-level log entries happened inside one workflow?
+- Did a handler produce a trace even if export/storage later dropped records?
+
+It is not meant to replace infrastructure telemetry. Use OpenTelemetry, metrics, or logs when you need cross-process standards, remote exporters, sampling control, dashboards, or alerting integration.
+
+## Documentation map
+
+- [Getting started](/libraries/tracing/guide/getting-started) completes one observable collection path before instrumenting application code.
+- [Model](/libraries/tracing/guide/model) defines traces, spans, events, logs, identity, and attribute ownership.
+- [Instrumentation](/libraries/tracing/guide/instrumentation) covers HTTP, domain, and asynchronous boundaries.
+- [Context and concurrency](/libraries/tracing/guide/context-and-concurrency) explains root/child rules and goroutine ownership.
+- [Collection](/libraries/tracing/guide/collection) explains the lossy process-wide queue and handler lifecycle.
+- [Local storage](/libraries/tracing/advanced/storage) covers segments, recovery, retention, cleanup, and durability.
+- [HTTP queries and stream](/libraries/tracing/advanced/http-queries) documents read endpoints, cursors, and NDJSON updates.
+- [Production operations](/libraries/tracing/advanced/operations) covers secure exposure, startup/shutdown, capacity, and diagnostics.
+
+<Callout title="Best effort is intentional">
+  Instrumentation never backpressures business work. Records can be dropped when
+  collection is absent, full, failing, or shutting down. Critical business facts
+  still belong in application storage.
+</Callout>

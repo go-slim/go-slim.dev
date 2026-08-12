@@ -1,0 +1,16 @@
+---
+title: 进阶
+description: 在基本采集可靠运行后，接入本地存储、HTTP 查询与生产运维。
+---
+
+# 进阶
+
+进阶部分面向已经完成根包埋点与 handler 生命周期的应用。
+
+- [本地存储](/zh-Hans/libraries/tracing/advanced/storage)：分段、恢复、retention、cleanup 和 durability。
+- [HTTP 查询与实时流](/zh-Hans/libraries/tracing/advanced/http-queries)：将存储中的记录暴露为受控查询与 NDJSON 更新。
+- [生产运维](/zh-Hans/libraries/tracing/advanced/operations)：安全边界、启停顺序、容量与故障诊断。
+
+<Callout type="warning" title="不要直接公开查询面">
+  Trace attribute 和 log 可能含用户标识、内部错误与资源引用。HTTP 查询必须位于应用的认证、授权、CORS 和网络边界之后。
+</Callout>

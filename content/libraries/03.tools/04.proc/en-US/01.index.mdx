@@ -1,0 +1,46 @@
+---
+title: proc
+sidebarTitle: Overview
+description: Handle signals, shutdown, working paths, and child commands when you own the main process.
+icon: cpu
+---
+
+# proc
+
+`go-slim.dev/proc` targets CLI and service entry points that own the entire process lifecycle. It provides current-process metadata, signal callbacks, a force-exit deadline, and child-command execution.
+
+```sh
+go get go-slim.dev/proc
+```
+
+The current module requires Go 1.24 or later.
+
+<Callout type="warning" title="Importing the package has process-wide effects">
+  Package initialization calls `signal.Notify` and takes ownership of `SIGHUP`, `SIGINT`, `SIGQUIT`, and `SIGTERM`. Receiving any of them runs the shutdown path and exits.
+</Callout>
+
+## Decide whether it fits first
+
+| Situation | Recommendation |
+| --- | --- |
+| You are writing the final `main`/command entry point and accept this signal policy | `proc` can fit |
+| You are writing a library imported by another program | Do not import `proc` |
+| The application already uses `signal.NotifyContext` or another supervisor | Keep one signal owner to avoid competing policies |
+| You only need a child command with exact I/O and cancellation control | Prefer `os/exec` in the current version |
+
+## Included capabilities
+
+- `Pid`, `Name`, `WorkDir`, and `Path` expose process-start metadata.
+- `On`, `Once`, `Cancel`, `Wait`, and `Notify` organize signal callbacks.
+- `SetTimeToForceQuit` and `Shutdown` implement an exit path with a hard deadline.
+- `Exec` starts an external command from Go.
+
+## Read progressively
+
+- [Run a child command](/libraries/proc/guide/run-child-command) covers directories, environment, timeout, and current limits.
+- [Handle signals and shutdown](/libraries/proc/guide/handle-signals) registers cleanup and explains forced termination.
+- [Lifecycle and platform boundaries](/libraries/proc/advanced/lifecycle-and-platform-boundaries) covers import effects, global state, testing, and Unix/Windows differences.
+
+<Callout type="info" title="Design intent">
+  `proc` chooses to be a process owner rather than a neutral toolbox. A fixed signal and final-exit policy reduces entry-point code, but makes the package unsuitable for reusable libraries whose host must own lifecycle decisions.
+</Callout>

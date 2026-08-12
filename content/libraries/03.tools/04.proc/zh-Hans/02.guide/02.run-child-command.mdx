@@ -1,0 +1,54 @@
+---
+title: 运行子命令
+description: 为外部命令设置目录、环境、输入和有上限的执行时间。
+---
+
+# 运行子命令
+
+## 最小可用示例
+
+```go
+err := proc.Exec(ctx, proc.ExecOptions{
+	Command: "go",
+	Args:    []string{"test", "./..."},
+	WorkDir: "./service",
+	Env:     []string{"GOFLAGS=-count=1"},
+	Timeout: 2 * time.Minute,
+	TTK:     2 * time.Second,
+})
+if err != nil {
+	return fmt.Errorf("test service: %w", err)
+}
+```
+
+`Command` 和 `Args` 直接传给 `exec.CommandContext`，不会自动启动 shell。只有确实需要 shell 语法时才显式执行 `sh -c` 或平台对应 shell，且不要把不可信输入拼进命令字符串。
+
+## 选项的实际语义
+
+| 选项 | 当前行为 |
+| --- | --- |
+| `WorkDir` | 为空时使用 `proc` 初始化时记录的工作目录 |
+| `Env` | 追加到 `os.Environ()` |
+| `Stdin` | 非 nil 时连接到子进程 |
+| `Timeout` | 创建内部 timeout context |
+| `TTK` | 设置 `exec.Cmd.WaitDelay` |
+| `OnStart` | 子进程成功启动后同步调用 |
+
+<Callout type="danger" title="当前取消行为不等于优雅退出">
+  `Exec` 覆盖了 `exec.CommandContext` 默认的 kill callback。当前版本中，只设置 `Timeout`
+  不能保证子进程被终止；请同时设置正的 `TTK` 作为强制终止上限。`TTK`
+  映射到 `WaitDelay`，并不表示先向子进程发送一个可自行处理的 interrupt。
+</Callout>
+
+## 输出与错误
+
+<Callout type="warning" title="Stdout 和 Stderr 选项尚未生效">
+  `ExecOptions` 虽然声明了 `Stdout` 和 `Stderr`，当前实现仍无条件把子进程连到
+  `os.Stdout` 和 `os.Stderr`。需要捕获、隐藏或分析输出时，请直接使用 `os/exec`。
+</Callout>
+
+`Exec` 用 `%w` 附加上下文，返回启动失败、context 取消/超时和非零退出。普通命令失败可以用 `errors.As` 尝试取得 `*exec.ExitError`；需要精确的取消、信号与 I/O 所有权时，直接使用 `os/exec` 更清晰。
+
+## 平台差异
+
+Unix 上会为命令设置 `Setpgid: true`；Windows 上不设置额外进程属性。这不等于跨平台的完整进程树清理保证；会再次派生子进程的命令需要在目标平台做集成测试。

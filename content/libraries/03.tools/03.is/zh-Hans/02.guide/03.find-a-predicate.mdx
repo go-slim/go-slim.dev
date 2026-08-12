@@ -1,0 +1,46 @@
+---
+title: 查找合适的谓词
+description: 按用户任务定位 is 包中的常用检查。
+---
+
+# 查找合适的谓词
+
+优先选择能直接表达意图的特定谓词，而不是用一个通用比较器承载所有规则。
+
+| 需要检查 | 优先使用 |
+| --- | --- |
+| email 或电话字符串 | `Email`、`E164`、`PhoneNumber` |
+| IPv4、IPv6 或 MAC | `IPv4`、`IPv6`、`IP`、`MAC` |
+| URL 或编码形式 | `URL`、`Base64`、`Base64URL`、`URLEncoded`、`HTMLEncoded` |
+| UUID、ULID、JWT 或摘要外形 | `UUID`、`UUID3`、`UUID4`、`UUID5`、`ULID`、`JWT`、`MD5`、`SHA256`、`SHA384`、`SHA512` |
+| JSON、语义化版本、label | `JSON`、`Semver`、`Label` |
+| ASCII/字母/字母数字 | `ASCII`、`Alpha`、`Alphanumeric`、`AlphaUnicode`、`AlphanumericUnicode` |
+| 整数外形或可解析数字 | `Number`、`Numeric` |
+| 布尔外形、大小写 | `Boolean`、`Lowercase`、`Uppercase` |
+| 日期格式或 IANA 时区 | `Datetime`、`Timezone` |
+| RGB/HSL 颜色 | `HEXColor`、`RGB`、`RGBA`、`HSL`、`HSLA`、`Color` |
+| 空值、枚举、长度 | `Empty`、`NotEmpty`、`OneOf`、`Length`、`LengthBetween` |
+| 值比较 | `Equal`、`NotEqual`、`GreaterThan`、`GreaterEqualThan`、`LessThan`、`LessEqualThan`、`Compare` |
+| 当前文件系统状态 | `File`、`Dir` |
+
+## 几组容易混淆的选择
+
+`Number("12.3")` 为 `false`，`Numeric("12.3")` 为 `true`。前者对字符串检查数字字符，后者接受小数外形。如果最终需要一个数值，仍应用 `strconv` 解析并处理错误。
+
+`Alpha` 只接受 ASCII 英文字母；用户名需要其他语言文字时，选择 `AlphaUnicode` 或 `AlphanumericUnicode`。
+
+`E164` 检查国际电话外形；`PhoneNumber` 是中国大陆手机号段格式。
+
+## 不要为了使用库而使用库
+
+已经拥有强类型值时，普通 Go 通常更清楚：
+
+```go
+if retries < 0 || retries > 10 {
+	return errors.New("retries must be between 0 and 10")
+}
+```
+
+这比把整数送入通用反射比较 API 更易读，也避免了边界语义歧义。
+
+下一步：[了解语义与安全边界](/zh-Hans/libraries/is/advanced/semantics-and-security)。

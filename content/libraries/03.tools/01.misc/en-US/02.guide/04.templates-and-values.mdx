@@ -1,0 +1,87 @@
+---
+title: Templates and values
+description: Interpolate controlled strings and understand generic zero, nil, pointer, and range helpers.
+---
+
+# Templates and values
+
+## Map interpolation
+
+```go
+message, err := misc.Substitute(
+	"Hello {name}, your region is {region}.",
+	map[string]any{
+		"name":   "Alice",
+		"region": "eu-west",
+	},
+)
+```
+
+`Substitute` uses `{` and `}`. `Interpolate` accepts custom delimiters:
+
+```go
+path, err := misc.Interpolate(
+	"/users/{{id}}?page={{page}}",
+	"{{", "}}",
+	map[string]any{"id": 42, "page": 2},
+)
+```
+
+An exact map key wins. Otherwise `"*"` is an optional fallback; without either, the original placeholder is preserved. Nil writes nothing. Values include strings, bytes, booleans, numbers, pointers to supported string/byte values, `fmt.Stringer`, and `%v`-printable values.
+
+This is textual interpolation, not context-aware escaping. Never use it to build SQL, shell commands, HTML, URLs, or headers from untrusted input without the correct encoder for that context.
+
+## Streaming tag resolution
+
+`Tmpl` writes literal segments to an `io.Writer` and delegates each complete tag:
+
+```go
+var output strings.Builder
+_, err := misc.Tmpl("user={{id}}", "{{", "}}", &output,
+	func(w io.Writer, tag string) (int, error) {
+		if tag != "id" {
+			return 0, fmt.Errorf("unknown tag %q", tag)
+		}
+		return io.WriteString(w, "42")
+	},
+)
+```
+
+It stops on the first writer/callback error and returns bytes reported before failure. An unclosed placeholder remains literal. Delimiters and callback must be non-empty/non-nil by application contract.
+
+## Zero and nil
+
+```go
+zero := misc.Zero[time.Duration]()
+pointer := misc.Ptr(42)
+nilPointer := misc.Nil[int]()
+```
+
+`Ptr` points to a copied value; reference-like values inside that copy still share their underlying state.
+
+`IsZero` recursively dereferences pointers:
+
+```go
+misc.IsZero(misc.Ptr(0))  // true
+misc.IsZero(misc.Ptr(42)) // false
+```
+
+`IsNil` checks whether the value itself is a nil-capable nil and does not dereference non-nil pointers:
+
+```go
+misc.IsNil((*int)(nil)) // true
+misc.IsNil([]int{})     // false
+misc.IsNil(0)           // false
+```
+
+## Defaults and ordered values
+
+```go
+name := misc.Coalesce("", configuredName, "default")
+lower, upper := misc.MinMax(maximum, minimum)
+bounded := misc.Clamp(input, minimum, maximum)
+```
+
+`Coalesce` returns the first non-zero value according to `IsZero`; a non-nil pointer to a zero value is therefore skipped. This may be wrong when presence and value are distinct—use an option type or explicit boolean in that case.
+
+`MinMax` and `Clamp` accept `cmp.Ordered` values. `Clamp` swaps reversed bounds automatically. Floating-point NaN follows Go comparison behavior and is not normalized by these helpers.

@@ -1,0 +1,16 @@
+---
+title: Advanced
+description: Add local storage, HTTP queries, and production operations after basic collection works.
+---
+
+# Advanced
+
+This section is for applications that already have root-package instrumentation and handler lifecycle working.
+
+- [Local storage](/libraries/tracing/advanced/storage) covers segments, recovery, retention, cleanup, and durability.
+- [HTTP queries and live stream](/libraries/tracing/advanced/http-queries) exposes stored records through controlled queries and NDJSON updates.
+- [Production operations](/libraries/tracing/advanced/operations) covers security boundaries, lifecycle, capacity, and diagnosis.
+
+<Callout type="warning" title="Do not expose the query surface directly">
+  Trace attributes and logs can contain user identifiers, internal failures, and resource references. Put HTTP queries behind application authentication, authorization, CORS, and network boundaries.
+</Callout>

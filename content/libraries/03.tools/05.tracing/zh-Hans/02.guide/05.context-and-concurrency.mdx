@@ -1,0 +1,93 @@
+---
+title: Context 与并发
+description: 只传播合法 span tree，并为每个并发操作建立明确 ownership。
+---
+
+# Context 与并发
+
+Tracing state 存在 `context.Context` 中，但包会刻意拒绝模糊的 tree 变换。Context 携带当前 trace 与可选 current span，不会隐式创建两者。
+
+## 读取可选边界
+
+```go
+trace, hasTrace := tracing.TraceFromContext(ctx)
+span, hasSpan := tracing.SpanFromContext(ctx)
+```
+
+可复用 adapter 使用 optional read。只有边界契约保证埋点存在时才使用 `MustTrace` 或 `MustSpan`；缺失 state 此时是 programmer error，会 panic。
+
+所有 context API 都要求非 nil context。
+
+## Root 与 child span
+
+只有 context 包含 trace 且没有 current span 时，`OpenSpan` 才能创建 root span：
+
+```go
+ctx, _ = tracer.Start(ctx)
+ctx, root, err := tracing.OpenSpan(ctx, "order.submit")
+```
+
+没有 trace 时返回 `ErrTraceNotFound`，已有 current span 时返回 `ErrSpanAlreadyOpen`。已有操作内部应创建 direct child：
+
+```go
+childCtx, child := tracing.StartChild(ctx, "inventory.reserve")
+defer child.End()
+
+return reserve(childCtx)
+```
+
+`StartChild` 在没有 open span 时 panic。更底层的等价写法是 `parent.Child` 再 `ContextWithSpan`。
+
+`ContextWithSpan` 会拒绝不同 trace、sibling binding、跳过 parent 和 ended span，避免 context 声称一条从未创建的 tree relation。
+
+## Goroutine ownership
+
+创建 span 的 goroutine 拥有 `End`。Parent 必须比全部 child 活得更久。不要让 `End` 与 `Event`、log builder 或 child creation 并发发生。
+
+并发工作应拥有各自 child span：
+
+```go
+group, groupCtx := errgroup.WithContext(ctx)
+for _, item := range items {
+	item := item
+	child := root.Child("item.process", tracing.String("item_id", item.ID))
+	childCtx := tracing.ContextWithSpan(groupCtx, child)
+
+	group.Go(func() error {
+		defer child.End()
+		return process(childCtx, item)
+	})
+}
+if err := group.Wait(); err != nil {
+	return err
+}
+```
+
+在启动 goroutine 前创建并绑定 child，并在 parent end 前完成 wait。
+
+## 分离 cancellation，但不共享 ownership
+
+`InjectContext(base, source)` 只复制 tracing state，不复制 deadline、cancellation 或其他 value。它要求空 base 和带 span 的 source：
+
+```go
+detached := tracing.InjectContext(context.Background(), sourceCtx)
+```
+
+只有代码需要同一个 current span 且该 span 会保持 open 时才适用。如果工作并发运行或比调用方活得更久，应创建 child span 或启动新 trace。
+
+对于 durable queue 或 process boundary，应产生 event、保存 `EventID`，再由 consumer 使用 `StartFromEvent`。这样保留因果关系，同时不会携带 request cancellation 或写入已经结束的 span。
+
+## End 与 builder 行为
+
+`Span.End` 幂等，只有第一次调用记录结束时间。结束后再创建 child、event 或 log 会 panic。
+
+`Logging` 是一次性 builder。调用 `Log` 或 `Logf` 后再次使用会 panic，也不能在 goroutine 间共享：
+
+```go
+span.Info("invoice.sent").
+	Service("billing").
+	String("invoice_id", id).
+	Log("invoice delivered")
+```
+
+整条 builder chain 应留在一个 statement 或 goroutine 内。

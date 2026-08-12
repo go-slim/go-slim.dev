@@ -1,0 +1,28 @@
+title: icu
+description:
+  en-US: Parse and render ICU-style parameterized messages in Go.
+  zh-Hans: 在 Go 中解析并渲染 ICU 风格的参数化消息。
+status: design
+icon: icons/languages.svg
+abbr:
+  zh-Hans:
+    ICU: "International Components for Unicode，Unicode 国际化组件规范与生态。"
+    "ICU MessageFormat": "支持参数替换、复数和选择分支的 ICU 消息格式。"
+    locale: "语言、地区及格式约定组成的本地化标识。"
+    Locale: "语言、地区及格式约定组成的本地化标识。"
+    formatter: "把参数值按 locale 和格式选项渲染为文本的格式化器。"
+    renderer: "遍历消息模型并输出最终文本的渲染器。"
+    provider: "按 locale 提供复数规则、数字或日期格式能力的实现。"
+    plural: "根据数量和 locale 复数规则选择消息分支的语法。"
+    AST: "Abstract Syntax Tree，解析后用于表示消息结构的抽象语法树。"
+    CLDR: "Unicode Common Locale Data Repository，通用本地化数据仓库。"
+    "golden test": "把实际输出与已审阅基准文件比较的快照式测试。"
+    "hot reload": "进程不重启时重新加载消息目录或配置的能力。"
+    case: "select 或 plural 消息中与某个条件对应的候选分支。"
+    checkout: "当前源码中仍待补齐、会阻止生产接入的检查项。"
+    catalog: "按 locale 和消息键组织模板的消息目录。"
+    ordinal: "用于第一、第二等序数表达的复数规则类型。"
+    "Formatter registry": "按名称查找自定义值格式化器的注册表。"
+    "parse-once/render-many": "消息只解析一次，随后用不同参数重复渲染的使用模式。"
+    "race detector": "Go 用于检测并发数据竞争的运行时测试工具。"
+showInNavigation: true

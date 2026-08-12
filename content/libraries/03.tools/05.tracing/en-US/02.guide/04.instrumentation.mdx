@@ -1,0 +1,134 @@
+---
+title: Instrumentation
+description: Start traces, open spans, emit events and logs, and propagate span context explicitly.
+---
+
+# Instrumentation
+
+Create a tracer, start a trace, and open spans around business operations.
+
+```go
+tracer := tracing.NewTracer()
+ctx, _ = tracer.Start(
+	ctx,
+	tracing.String("request_id", requestID),
+)
+
+ctx, root, err := tracing.OpenSpan(
+	ctx,
+	"inventory.sync",
+	tracing.String("region", "east"),
+)
+if err != nil {
+	return err
+}
+defer root.End()
+```
+
+## Events and child spans
+
+```go
+eventID := root.Event(
+	"inventory.received",
+	tracing.Int("items", len(items)),
+)
+
+child := root.Child("inventory.persist")
+defer child.End()
+
+childCtx := tracing.ContextWithSpan(ctx, child)
+child.Info("inventory.saved").
+	Service("inventory").
+	Int("items", len(items)).
+	Log("inventory persisted")
+
+persistNext(childCtx, eventID)
+```
+
+Use context propagation explicitly. `ContextWithSpan` binds a span to a context; `SpanFromContext` reads it without creating anything implicitly.
+
+## Start from an event
+
+For asynchronous work, start a separate trace from the triggering event:
+
+```go
+ctx, _ = tracer.StartFromEvent(
+	ctx,
+	message.EventID,
+	tracing.String("request_id", message.RequestID),
+)
+
+ctx, span, err := tracing.OpenSpan(ctx, "inventory.consume")
+if err != nil {
+	return err
+}
+defer span.End()
+```
+
+This preserves causality without pretending both operations share one process-local span tree.
+
+## Required span boundaries
+
+When an operation requires an existing span, read it explicitly:
+
+```go
+span, ok := tracing.SpanFromContext(ctx)
+if !ok {
+	return errors.New("missing tracing span")
+}
+
+span.Warn("inventory.delayed").Log("inventory processing took too long")
+```
+
+Use `tracing.MustSpan(ctx)` only when the boundary guarantees a span is present.
+
+## HTTP boundary example
+
+At an HTTP boundary, start a trace once and open a root span for the handler:
+
+```go
+func traceHTTP(tracer *tracing.Tracer, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := tracer.Start(
+			r.Context(),
+			tracing.String("method", r.Method),
+			tracing.String("path", r.URL.Path),
+		)
+
+		ctx, span, err := tracing.OpenSpan(ctx, "http.request")
+		if err != nil {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		defer span.End()
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+```
+
+Keep protocol details at the boundary and use domain names for inner spans.
+
+## Queue boundary example
+
+When a job is published because of an event, persist the event ID in the job payload. The consumer starts a new trace from that event:
+
+```go
+eventID := span.Event("email.queued", tracing.String("template", "welcome"))
+
+_ = sendEmail.Publish(ctx, EmailTask{
+	EventID: eventID,
+	UserID:  userID,
+})
+```
+
+```go
+ctx, _ := tracer.StartFromEvent(ctx, task.EventID)
+ctx, span, err := tracing.OpenSpan(ctx, "email.send")
+if err != nil {
+	return err
+}
+defer span.End()
+```
+
+This keeps async work connected without sharing a span across goroutines, processes, or durable queue boundaries.

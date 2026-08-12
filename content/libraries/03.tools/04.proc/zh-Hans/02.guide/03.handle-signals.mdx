@@ -1,0 +1,58 @@
+---
+title: 处理信号与退出
+description: 注册信号回调，设置最长清理时间，并避免把强制终止误解为纯通知。
+---
+
+# 处理信号与退出
+
+## 为主进程注册清理任务
+
+```go
+proc.SetTimeToForceQuit(10 * time.Second)
+
+proc.Once(syscall.SIGTERM, func() {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	_ = server.Shutdown(ctx)
+	_ = database.Close()
+})
+```
+
+`Once` 返回 listener ID，可在执行前取消：
+
+```go
+id := proc.On(syscall.SIGUSR1, reload)
+defer proc.Cancel(id)
+```
+
+`On` 每次触发，`Once` 最多触发一次。`Notify` 可在进程内手动分发信号回调；它并发运行匹配的 callback，并等待它们全部返回。callback panic 会被恢复并写入 `Logger`。
+
+<Callout type="warning" title="四个常见信号都会转成 SIGTERM 退出">
+  操作系统发来的 `SIGHUP`、`SIGINT`、`SIGQUIT` 和 `SIGTERM` 都会进入
+  `Shutdown(SIGTERM)`。因此 `On(SIGHUP, reload)` 不会用来处理真实 SIGHUP；
+  `SIGTERM` callback 则会在上述任一信号下运行。需要 SIGHUP 热重载时，这套固定策略不适合。
+</Callout>
+
+## `Shutdown` 会终止当前进程
+
+<Callout type="danger" title="Shutdown 不是单纯发布事件">
+  `Shutdown(sig)` 最终总会向当前进程发送 `sig`（Windows 上直接 kill）。不要在普通请求处理、可复用库或单元测试进程中把它当作清理 helper 调用。
+</Callout>
+
+未设置延迟时，`Shutdown` 同步等待 `SIGTERM` callback，然后立即终止。设置正延迟后，它在 goroutine 中通知 callback，只等待固定时长，随后强制终止；它不会根据 callback 提前完成而提前退出。
+
+## 使用 `Wait`
+
+```go
+proc.Wait(syscall.SIGUSR1)
+```
+
+`Wait` 注册一次性 listener 并阻塞当前 goroutine。无效或平台不支持的信号无法注册，当前实现会永久等待。对 `SIGHUP`/`SIGINT`/`SIGQUIT` 等已被统一转成 shutdown 的信号，也不应用 `Wait`。
+
+## 回调的设计约束
+
+- callback 可并发运行，共享资源必须自行同步。
+- callback 没有 error 返回值；重要失败需要自行记录。
+- callback 没有自带 context；清理操作应创建比强制退出窗口更短的 timeout。
+- 多个 callback 之间不应依赖执行顺序。

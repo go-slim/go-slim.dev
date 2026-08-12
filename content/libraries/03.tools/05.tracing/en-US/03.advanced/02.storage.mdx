@@ -1,0 +1,83 @@
+---
+title: Local storage
+description: Persist batches in a segmented engine with recovery, indexed queries, retention, and capacity cleanup.
+---
+
+# Local storage
+
+`go-slim.dev/tracing/storage` implements `tracing.Handler`. It stores append-only checked frames in segments, recovers complete frames on startup, builds in-memory indexes, and exposes concurrent query APIs.
+
+Only one engine may hold a directory lock at a time.
+
+## Open and run
+
+```go
+engine, err := storage.Open(
+	ctx,
+	"./var/tracing",
+	storage.WithCapacity(512<<20, 0.90, 0.75),
+	storage.WithSegmentBytes(64<<20),
+	storage.WithRetention(7*24*time.Hour, 180*24*time.Hour),
+	storage.WithCleanup(time.Hour, 5000),
+)
+if err != nil {
+	return err
+}
+```
+
+`Engine.Run` runs the global tracing handler and periodic cleanup. Use `RunWithReady` for deterministic application startup:
+
+```go
+runCtx, cancel := context.WithCancel(ctx)
+ready := make(chan struct{})
+done := make(chan error, 1)
+go func() { done <- engine.RunWithReady(runCtx, ready) }()
+
+select {
+case <-ready:
+	// Safe to start instrumented business components.
+case err := <-done:
+	_ = engine.Close()
+	return err
+}
+```
+
+Do not also run a second root `RunHandler`; collection is process-wide.
+
+## Defaults
+
+| Setting | Default |
+| --- | ---: |
+| Segment target | 64 MiB |
+| Physical capacity | 512 MiB |
+| High / low watermark | 90% / 75% |
+| Raw trace retention | 7 days |
+| Health projection retention | 180 days |
+| Cleanup interval | 1 hour |
+| Query page | 100, maximum 500 |
+
+Level ages make lower-severity logs eligible for pruning earlier: debug 3 days, info 4, warn 5, error 6, and critical follows raw retention. `WithLevelAges` must remain non-decreasing and within raw retention.
+
+## Raw records and health projection
+
+Logs with a non-empty `Service` contribute to service health views and daily level counts. Health samples are retained separately from raw trace availability. A sample can therefore remain after its full trace was pruned, with `ParentsAvailable` reporting whether parents can still be queried.
+
+Service health is a local projection of emitted business logs, not an uptime monitor or SLA measurement unless the application defines and emits those semantics consistently.
+
+## Durability and sync
+
+By default writes are appended without an fsync before every `Store` return. `WithSyncWrites(true)` strengthens the boundary at a throughput cost. `Engine.Sync(ctx)` can establish an explicit checkpoint.
+
+Checksums and recovery protect storage structure, but filesystem loss, disk exhaustion, and host loss remain deployment concerns. Put the directory on appropriate persistent storage and test recovery.
+
+## Cleanup and compaction
+
+Retention makes records eligible for logical removal. Capacity cleanup starts at the high watermark and compacts toward the low watermark. `Cleanup`/`CleanupAt` perform bounded cleanup; `Compact` rewrites physical storage. `Stats` reports physical, live, dead bytes and indexed record counts.
+
+Cleanup may require multiple batches; inspect `CleanupResult.HasMore`. Do not run ad hoc cleanup/close concurrently with lifecycle transitions without application coordination.
+
+## Observers
+
+`Observe` receives committed revisions and changes. The callback executes in the `Store`, `Cleanup`, or `Close` caller, so it must be fast and avoid slow I/O or re-entrant engine work. Panics are recovered and reported through `slog`.
+
+Use observers for lightweight invalidation signals; query the engine for authoritative views.

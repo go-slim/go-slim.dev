@@ -1,0 +1,84 @@
+---
+title: HTTP 与 client IP
+description: 检查请求，并且只通过明确 proxy trust boundary 推导 client address。
+---
+
+# HTTP 与 client IP
+
+HTTP helper 检查标准 `*http.Request`，不引入 middleware state。
+
+## TLS、scheme 与 WebSocket 检测
+
+```go
+directTLS := misc.IsTLS(r)
+scheme := misc.Scheme(r)
+upgrade := misc.IsWebSocket(r)
+```
+
+`IsTLS` 只检查 `Request.TLS` 是否非 nil。`IsWebSocket` 同时要求 `Upgrade: websocket` 和包含 `upgrade` 的 `Connection`，只检测 handshake，不负责提供 WebSocket 服务。
+
+`Scheme` 先选择 direct TLS，再查看支持的 forwarded field，最后返回 `http`。它理解 `http`、`https`、`ws`、`wss` 及 `X-Forwarded-Ssl: on`。
+
+<Callout title="Forwarded field 不是证明">
+  `Scheme` 不校验直接连接的 peer。只有受信任 edge 先删除客户端字段并写入
+  canonical value 后，应用才能把它用于 redirect、cookie 或安全决策。
+</Callout>
+
+## 最小 redirect
+
+```go
+if err := misc.Redirect(w, http.StatusTemporaryRedirect, target); err != nil {
+	return fmt.Errorf("redirect: %w", err)
+}
+```
+
+`Redirect` 接受 300 到 308，且只设置 `Location` 与 status，不写 body。非法 code 会在改变 response 前返回 `ErrInvalidRedirectCode`。需要 escaping 与 HTML body 时使用 `http.Redirect`。
+
+## 直接连接地址
+
+没有 extractor 时，`RealIP` 只读取 `RemoteAddr`：
+
+```go
+ip := misc.RealIP(r)
+// 等价策略：
+ip = misc.RealIP(r, misc.ExtractIPDirect())
+```
+
+Direct extractor 接受 host:port、由 `SplitHostPort` 处理的 bracketed IPv6 和 bare valid IP。格式错误返回空字符串。
+
+## X-Forwarded-For chain
+
+在启动阶段配置一次 topology：
+
+```go
+_, proxyNet, err := net.ParseCIDR("203.0.113.0/24")
+if err != nil {
+	return err
+}
+
+extractClientIP := misc.ExtractIPFromXFFHeader(
+	misc.TrustLoopback(false),
+	misc.TrustLinkLocal(false),
+	misc.TrustPrivateNet(false),
+	misc.TrustIPRange(proxyNet),
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	ip := misc.RealIP(r, extractClientIP)
+	_ = ip
+}
+```
+
+Extractor 合并全部 XFF field line、追加 direct peer、校验每个 hop，再从右向左扫描，返回最近的不可信地址。如果全部可信则返回最左地址；任一 hop 格式错误都会让整个 chain 失效并回退 direct peer。
+
+Loopback、link-local 和 private range 默认可信。这一继承默认值不一定适合 public cloud 或 zero-trust topology，因此应显式配置每类地址。
+
+## X-Real-IP 行为
+
+`ExtractIPFromRealIPHeader` 只有在 field 内地址本身属于可信类别或配置 range 时才返回它，否则返回 direct peer。这与“从已知 proxy 接收任意 public client address”不是同一种策略。
+
+两个 proxy-aware extractor 内部都会回退 `RemoteAddr`。把 XFF 与 X-Real-IP extractor 一起传给 `RealIP` 不会形成可靠 header precedence chain，因为第一个通常会返回 fallback。应选择 edge 写入的唯一 canonical field，或实现应用专属 `IPExtractor`。
+
+## 安全用途
+
+即使正确推导的 IP 也不是稳定身份。它适合作为日志、abuse control 或粗粒度 rate limit 的一个信号，不适合作为 authentication。用作 structured label 或 audit data 前应规范化并限制长度。

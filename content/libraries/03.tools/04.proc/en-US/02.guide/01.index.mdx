@@ -1,0 +1,13 @@
+---
+title: Guide
+description: Run child commands and coordinate signal-driven shutdown.
+---
+
+# Guide
+
+Treat process control as a lifecycle: start a child with explicit environment and timeout choices, then define how the application reacts when termination begins.
+
+1. [Run a child command](/libraries/proc/guide/run-child-command) covers working directories, environment, output, timeout, and current limits.
+2. [Handle signals and shutdown](/libraries/proc/guide/handle-signals) registers cleanup and explains forced termination.
+
+Continue to [Advanced](/libraries/proc/advanced) for package-wide state, platform differences, and test boundaries.

@@ -1,0 +1,93 @@
+---
+title: 快速开始
+description: 启动一个可验证的 handler，产生第一条 trace、span 和 log。
+---
+
+# 快速开始
+
+这一页只完成一个目标：让一次业务操作进入 handler，并用程序断言确认采集链路真正工作。
+
+## 安装
+
+```sh
+go get go-slim.dev/tracing
+```
+
+模块要求 Go 1.25.5 或更高版本。
+
+## 启动 handler 并等待 ready
+
+```go
+runCtx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+ready := make(chan struct{})
+received := make(chan tracing.Batch, 1)
+done := make(chan error, 1)
+
+handler := tracing.HandlerFunc(func(_ context.Context, batch tracing.Batch) error {
+	received <- batch
+	return nil
+})
+
+go func() {
+	done <- tracing.RunHandlerWithReady(runCtx, handler, ready)
+}()
+
+select {
+case <-ready:
+	// 现在才启动会产生埋点的业务组件。
+case err := <-done:
+	return fmt.Errorf("start tracing handler: %w", err)
+}
+```
+
+`ready` 保证采集循环已开始接收，不只是 goroutine 已创建。
+
+## 产生一条可观测操作
+
+```go
+tracer := tracing.NewTracer()
+ctx, _ := tracer.Start(
+	context.Background(),
+	tracing.String("request_id", "req-42"),
+)
+
+ctx, span, err := tracing.OpenSpan(ctx, "inventory.sync")
+if err != nil {
+	return err
+}
+
+span.Info("inventory.started").Log("inventory synchronization started")
+span.End()
+```
+
+`OpenSpan` 不会隐式创建 trace；它要求 context 已由 `Tracer.Start` 初始化。
+
+## 验证而不是靠猜
+
+```go
+select {
+case batch := <-received:
+	if len(batch.Traces) == 0 || len(batch.Spans) == 0 || len(batch.Logs) == 0 {
+		return errors.New("incomplete tracing batch")
+	}
+case <-time.After(time.Second):
+	return errors.New("tracing batch was not collected")
+}
+```
+
+handler 最多等待 100ms 就会 flush 未满的 batch，因此一秒只是示例的外部测试上限。
+
+## 按所有权顺序关闭
+
+1. 先停止 HTTP handler、worker 等 producer。
+2. 调用 `cancel()` 停止采集入口。
+3. 等待 `<-done`，让 runner 在有界窗口内尽量 flush。
+4. 最后关闭 handler 拥有的存储或网络资源。
+
+<Callout type="warning" title="不要把 trace 当成业务持久化">
+  采集是 best effort。付款成功、订单状态转换或审计事实仍必须写入应用自己的持久化存储。
+</Callout>
+
+下一步：[理解记录模型](/zh-Hans/libraries/tracing/guide/model)。

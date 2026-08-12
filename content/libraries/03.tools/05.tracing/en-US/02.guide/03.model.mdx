@@ -1,0 +1,89 @@
+---
+title: Model
+description: Understand traces, spans, events, logs, and local attributes.
+---
+
+# Model
+
+The root package records local business facts. It does not persist them, query them, aggregate service health, push realtime updates, or serve UI.
+
+## Trace
+
+A trace represents one end-to-end business operation.
+
+- `TraceID` is an opaque observability identifier, not a business primary key, idempotency key, ordering value, or authorization credential.
+- Trace attributes are provided at creation time and are not mutated later.
+- One trace can contain multiple root spans.
+- An event can trigger a separate trace with a new `TraceID`; the new trace records the causal event through `TriggerEventID`.
+
+## Span
+
+A span represents a timed operation inside a trace.
+
+- Spans can have parent spans.
+- Names describe operations, such as `inventory.persist`.
+- Attributes are local to the span.
+- `Child` creates parent-child relation only; use `ContextWithSpan` when the child span must cross function boundaries.
+- A span cannot create child spans, events, or logs after it ends.
+- The goroutine that creates a span should end it, and a parent should outlive its children.
+
+## Event
+
+An event is a structured fact at a point in time during a span. It has a stable name, timestamp, and local attributes. It does not imply subscription, delivery, retries, or broadcast.
+
+Use an event ID to connect asynchronous causality:
+
+```text
+Trace A -> Event E1 -> Trace B
+```
+
+Trace B starts with a new trace ID and records E1 through `StartFromEvent`.
+
+## Log
+
+A log is a business observation inside a span. It includes level, stable event name, human-readable message, local attributes, and optional service name.
+
+Logs cannot be emitted without a span. `Logging` is a one-shot builder for a log record, not a standalone logger.
+
+## Attributes
+
+Trace, span, event, and log records keep only their own local attributes. There is no implicit inheritance:
+
+```text
+Trace.Attrs
+Span.Attrs
+Event.Attrs
+Log.Attrs
+```
+
+Consumers can combine context later using TraceID and SpanID.
+
+## Record identity
+
+Record identifiers are observability identities:
+
+| Identifier | Scope |
+| --- | --- |
+| `TraceID` | Groups related spans, events, and logs for one business operation. |
+| `SpanID` | Identifies a timed operation inside a trace. |
+| `EventID` | Identifies a point-in-time event and can trigger another trace. |
+| `TriggerEventID` | Records which event caused a new trace. |
+
+Do not treat these values as authorization secrets or user-visible business IDs. They are correlation values.
+
+## Naming guidance
+
+Use stable operation names, not high-cardinality strings:
+
+```text
+inventory.sync
+inventory.persist
+email.send
+invoice.retry
+```
+
+Put variable data such as user ID, tenant, region, or item count in attributes. This keeps queries and storage indexes usable.
+
+## Attribute guidance
+
+Attributes should be compact and structured. Prefer small scalar values over large payloads. Store large request bodies, job bodies, or external documents elsewhere and include references.

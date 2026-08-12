@@ -1,0 +1,37 @@
+---
+title: 格式化、扩展与边界
+description: 理解默认 formatter、locale 提供者、百分比语义、context 与并发配置。
+---
+
+# 格式化、扩展与边界
+
+## 使用 `New`，除非你要从空配置开始
+
+`icu.New(tag)` 注册 `number`、`date`、`time`、`plural`、`select`、`ordinal` 和 `duration` formatter。`NewRenderer(tag)` 只创建空 context，没有这些默认 formatter。
+
+```go
+renderer := icu.New(language.Chinese)
+```
+
+## Locale 支持是格式化 provider，不是完整 ICU 规则
+
+当前内置 provider 键为 `zh`、`en`、`es`、`fr`、`de`、`it`、`pt`、`ru`、`ja` 和 `ko`；未匹配的语言回退到 English provider。provider 覆盖日期、时间、货币名称和 ordinal，plural 选择当前却不读取 locale。
+
+<Callout type="warning" title="不要用 README 输出推断契约">
+  当前数字格式化是自定义实现，并非 `x/text/message` 的 CLDR-backed 输出。分组、货币、有效数字与语言结果都需要 golden tests 后才能作为稳定契约。
+</Callout>
+
+## 几个必须显式的语义
+
+- percent 实现先除以 100，再由 formatter 乘以 100；因此输入 `75` 表示 `75%`，README 中“`0.75` 输出 `75%`”的示例与实现不一致。
+- `date` 和 `time` 的无效 `timeZone` 会被静默忽略，不返回配置错误。翻译资源中的时区应预先验证。
+- `Render` 接收 `context.Context`，但当前代码不读取 cancellation 或 deadline。
+- `duration` 对某些非 `int64`/`float64` 数值类型的 type switch 存在 panic 风险，修复和覆盖测试前应传 `time.Duration` 或 duration 字符串。
+
+## 自定义 formatter
+
+`RegisterSpecialFormatter`、`SetSimpleFormatter` 和 `SetUnknownFormatter` 修改 renderer 的 context 配置。实现 `SpecialFormatter` 时，从 `Context` 读取变量与 locale，并从 `ast.Placeholder` 读取 args/options/cases。
+
+<Callout type="warning" title="启动时配置，运行时只读">
+  Formatter registry 使用普通 map，没有同步保护。在启动阶段完成所有注册，之后才向多个 goroutine 共享 renderer；不要边 Render 边变更 formatter。修复后仍应用 `go test -race` 验证这个模式。
+</Callout>

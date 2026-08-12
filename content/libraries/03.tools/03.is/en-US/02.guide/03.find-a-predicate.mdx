@@ -1,0 +1,44 @@
+---
+title: Find a predicate
+description: Locate common is checks by the task you need to complete.
+---
+
+# Find a predicate
+
+Prefer the most specific predicate that expresses your intent instead of routing every rule through a generic comparator.
+
+| Check | Prefer |
+| --- | --- |
+| Email or phone-shaped strings | `Email`, `E164`, `PhoneNumber` |
+| IPv4, IPv6, or MAC | `IPv4`, `IPv6`, `IP`, `MAC` |
+| URL or encoded shape | `URL`, `Base64`, `Base64URL`, `URLEncoded`, `HTMLEncoded` |
+| UUID, ULID, JWT, or digest shape | `UUID`, `UUID3`, `UUID4`, `UUID5`, `ULID`, `JWT`, `MD5`, `SHA256`, `SHA384`, `SHA512` |
+| JSON, semantic version, or label | `JSON`, `Semver`, `Label` |
+| ASCII, letters, or alphanumerics | `ASCII`, `Alpha`, `Alphanumeric`, `AlphaUnicode`, `AlphanumericUnicode` |
+| Integer-shaped or parseable numeric input | `Number`, `Numeric` |
+| Boolean-shaped input or letter case | `Boolean`, `Lowercase`, `Uppercase` |
+| Date layout or IANA time zone | `Datetime`, `Timezone` |
+| RGB/HSL color | `HEXColor`, `RGB`, `RGBA`, `HSL`, `HSLA`, `Color` |
+| Empty value, enum, or length | `Empty`, `NotEmpty`, `OneOf`, `Length`, `LengthBetween` |
+| Value comparison | `Equal`, `NotEqual`, `GreaterThan`, `GreaterEqualThan`, `LessThan`, `LessEqualThan`, `Compare` |
+| Current filesystem state | `File`, `Dir` |
+
+## Common choices that look similar
+
+`Number("12.3")` is `false`; `Numeric("12.3")` is `true`. The former accepts digit-only strings, while the latter accepts decimal syntax. If you need a number, still parse it with `strconv` and handle the error.
+
+`Alpha` accepts ASCII English letters. Choose `AlphaUnicode` or `AlphanumericUnicode` when a user name may contain other scripts.
+
+`E164` checks an international phone-number shape. `PhoneNumber` is specifically a mainland China mobile-number pattern.
+
+## Plain Go is often clearer for typed values
+
+```go
+if retries < 0 || retries > 10 {
+	return errors.New("retries must be between 0 and 10")
+}
+```
+
+This is easier to read than sending an already typed integer through a reflection-based generic comparator, and it avoids ambiguity around range semantics.
+
+Next: [understand semantics and security boundaries](/libraries/is/advanced/semantics-and-security).

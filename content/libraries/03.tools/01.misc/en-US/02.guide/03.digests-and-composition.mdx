@@ -1,0 +1,73 @@
+---
+title: Digests and composition
+description: Hash passwords correctly and compose sequential error-returning operations.
+---
+
+# Digests and composition
+
+## Password hashing
+
+```go
+hash, err := misc.PasswordHash(password)
+if err != nil {
+	return err
+}
+
+if !misc.PasswordVerify(candidate, hash) {
+	return errors.New("invalid credentials")
+}
+```
+
+`PasswordHash` uses bcrypt with `bcrypt.DefaultCost`. It can fail, including for values longer than bcrypt's supported password limit. Store the returned encoded hash, never the plaintext.
+
+`PasswordVerify` returns false for both mismatch and malformed hash. Use `bcrypt.CompareHashAndPassword` directly if diagnostics must distinguish them. Authentication responses should generally avoid exposing that distinction.
+
+## Digests are not passwords
+
+```go
+md5Hex := misc.MD5("payload")       // uppercase hexadecimal
+sha1Hex := misc.Sha1("payload")     // lowercase hexadecimal
+sha256Hex := misc.Sha256("payload") // lowercase hexadecimal
+```
+
+MD5 and SHA-1 are cryptographically broken. Use them only when an existing non-security protocol or checksum format requires their exact output. SHA-256 is a digest, not a password KDF; it is still inappropriate for direct password storage.
+
+For authenticated messages use an appropriate MAC such as HMAC, and compare authentication values in constant time. The digest helpers provide neither by themselves.
+
+## Execute steps in order
+
+```go
+err := misc.Call(
+	loadConfiguration,
+	openDatabase,
+	startServer,
+)
+```
+
+`Call` executes in declaration order and returns the first non-nil error unchanged. No functions returns nil. A nil function is not skipped and panics when reached.
+
+Use the generic form when every step receives the same value:
+
+```go
+err := misc.CallG(input,
+	func(v Input) error { return validate(v) },
+	func(v Input) error { return persist(v) },
+)
+```
+
+This is sequential fan-out, not a data transformation pipeline: every function receives the original value and cannot pass a changed value to the next step.
+
+## Build reusable operations
+
+```go
+start := misc.Wrap(loadConfiguration, openDatabase, startServer)
+if err := start(); err != nil {
+	return err
+}
+
+validateAndSave := misc.WrapG(validate, persist)
+```
+
+`Wrap` and `WrapG` capture the function list but do not run it until invocation. If reused concurrently, all captured functions and state must be concurrency-safe.
+
+Composition does not perform rollback. When partially completed steps own resources, pair operations with explicit cleanup or use a lifecycle abstraction that records successful starts and unwinds them in reverse order.

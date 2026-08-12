@@ -1,0 +1,19 @@
+title:
+  en-US: tools
+  zh-Hans: 工具
+sidebarIcons:
+  guide: tabler:route
+  advanced: tabler:settings-code
+  examples: tabler:flask-2
+abbr:
+  zh-Hans:
+    context: "用于传播取消信号、截止时间和调用级数据的 context.Context。"
+    callback: "由类库在特定时机回调的应用函数。"
+    goroutine: "由 Go 运行时调度的轻量并发执行单元。"
+    panic: "Go 中断当前调用流程并沿调用栈展开的运行时机制。"
+    nil: "Go 中指针、接口、切片、映射等类型的零值。"
+    fallback: "首选数据不可用时采用的后备值或后备路径。"
+    deadline: "操作必须完成或被取消的绝对时间点。"
+    cancellation: "通知正在执行的工作尽快停止的协作式取消机制。"
+    cleanup: "停止工作后释放文件、连接和 goroutine 等资源的清理过程。"
+    storage: "保存并读取运行数据的存储实现。"

@@ -1,0 +1,54 @@
+---
+title: misc
+sidebarTitle: 概览
+description: 面向 HTTP 检查、安全敏感值、组合、模板与泛型的专用 helper。
+icon: tool
+---
+
+# misc
+
+`go-slim.dev/misc` 汇集独立的小型 Go helper，覆盖 HTTP request inspection、client IP extraction、digest/password、顺序函数组合、模板插值、泛型值、ordered math 和边界明确的 zero-copy conversion。
+
+标准库能够同样清楚地表达操作时，应优先使用标准库。`misc` 不是 framework、middleware stack、binding package、validator、renderer 或配置系统。
+
+## 安装
+
+```sh
+go get go-slim.dev/misc
+```
+
+模块要求 Go 1.25.5 或更高版本。运行时依赖 `go-slim.dev/nego` 的共享 HTTP 常量和 `golang.org/x/crypto/bcrypt` 的密码 hash。
+
+## Helper map
+
+| 领域 | API |
+| --- | --- |
+| Request inspection | `IsTLS`、`IsWebSocket`、`Scheme`、`Redirect` |
+| Client address | `RealIP`、direct/XFF/X-Real-IP extractor 与 trust option |
+| Digest 与 password | `MD5`、`Sha1`、`Sha256`、`PasswordHash`、`PasswordVerify` |
+| 顺序 flow | `Call`、`CallG`、`Wrap`、`WrapG` |
+| Template | `Substitute`、`Interpolate`、`Tmpl`、`TagFunc` |
+| 泛型值 | `Zero`、`Ptr`、`Nil`、`IsZero`、`IsNil`、`Coalesce` |
+| Ordered math | `MinMax`、`Clamp` |
+| Unsafe conversion | `BytesToString`、`StringToBytes` |
+
+## 继续阅读
+
+- [HTTP 与 client IP](/zh-Hans/libraries/misc/guide/http-and-client-ip) 解释 forwarded-header trust 和 direct-peer extraction。
+- [Digest 与函数组合](/zh-Hans/libraries/misc/guide/digests-and-composition) 介绍 bcrypt、checksum 边界和顺序函数。
+- [模板与值](/zh-Hans/libraries/misc/guide/templates-and-values) 介绍插值、泛型 zero/nil 语义和 ordered math。
+- [Unsafe 与 deprecated API](/zh-Hans/libraries/misc/advanced/unsafe-and-deprecated) 解释 alias rule 和标准库替代。
+
+## 设计规则
+
+- HTTP inspection 期望非 nil request，不隐藏 programmer error。
+- Proxy header 默认不可信，除非部署建立了具体 proxy boundary。
+- Password 使用 bcrypt；MD5 与 SHA-1 只用于兼容 checksum。
+- Composition 原样返回第一个 error，不恢复 panic。
+- `IsZero` 与 `IsNil` 刻意回答不同问题。
+- Unsafe conversion 共享 storage，所有权与同步由调用方负责。
+
+<Callout title="小工具同样包含策略">
+  Client IP、密码存储、模板输出和 zero-copy alias 都涉及安全或所有权策略。
+  应让这些策略在调用点清晰可见。
+</Callout>

@@ -1,0 +1,89 @@
+---
+title: 模型
+description: 理解 trace、span、event、log 和局部属性。
+---
+
+# 模型
+
+根包记录本地业务事实。它不负责持久化、查询、服务健康聚合、实时推送或 UI。
+
+## Trace
+
+Trace 表示一次端到端业务操作。
+
+- `TraceID` 是不透明观测标识，不是业务主键、幂等键、排序值或鉴权凭证。
+- Trace 属性只在创建时提供，之后不再修改。
+- 一个 trace 可以包含多个 root span。
+- event 可以触发一个带新 `TraceID` 的独立 trace；新 trace 通过 `TriggerEventID` 记录因果事件。
+
+## Span
+
+Span 表示 trace 中一段有开始和结束时间的业务操作。
+
+- span 可以有父 span。
+- 名称描述操作，例如 `inventory.persist`。
+- 属性只属于当前 span。
+- `Child` 只建立父子关系；child span 需要跨函数边界时使用 `ContextWithSpan`。
+- span 结束后不能再创建 child span、event 或 log。
+- 创建 span 的 goroutine 应负责结束它，父 span 应晚于子 span 结束。
+
+## Event
+
+Event 是 span 生命周期内某个时刻发生的结构化事实。它有稳定名称、时间和局部属性，但不表示订阅、投递、重试或广播。
+
+使用 event ID 连接异步因果关系：
+
+```text
+Trace A -> Event E1 -> Trace B
+```
+
+Trace B 使用新的 trace ID，并通过 `StartFromEvent` 记录 E1。
+
+## Log
+
+Log 是 span 内的一条业务观测结果，包含 level、稳定 event name、人类可读 message、局部属性和可选 service。
+
+Log 不能脱离 span 产生。`Logging` 是构造一条 log record 的一次性 builder，不是独立 logger。
+
+## 属性
+
+Trace、span、event、log 只保存自己的局部属性，不做隐式继承：
+
+```text
+Trace.Attrs
+Span.Attrs
+Event.Attrs
+Log.Attrs
+```
+
+消费方可以之后通过 TraceID 和 SpanID 组合上下文。
+
+## 记录身份
+
+记录标识符是观测身份：
+
+| Identifier | Scope |
+| --- | --- |
+| `TraceID` | 将一次业务操作的 spans、events、logs 关联起来。 |
+| `SpanID` | 标识 trace 内的一段有耗时的操作。 |
+| `EventID` | 标识一个时间点 event，并可触发另一个 trace。 |
+| `TriggerEventID` | 记录新 trace 是由哪个 event 触发的。 |
+
+不要把这些值当作鉴权密钥或用户可见业务 ID。它们是 correlation values。
+
+## 命名建议
+
+使用稳定 operation name，不要使用高基数字符串：
+
+```text
+inventory.sync
+inventory.persist
+email.send
+invoice.retry
+```
+
+user ID、tenant、region、item count 这类变量数据放到 attributes。这样查询和 storage index 才可用。
+
+## 属性建议
+
+attributes 应短小且结构化。优先使用小的标量值，不要放大 payload。request body、job body 或外部文档应存到其他位置，并在属性中放引用。

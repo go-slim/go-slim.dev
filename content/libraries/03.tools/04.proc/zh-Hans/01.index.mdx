@@ -1,0 +1,47 @@
+---
+title: proc
+sidebarTitle: 概览
+description: 在明确掌控主进程时处理信号、退出、工作目录和子命令。
+icon: cpu
+---
+
+# proc
+
+`go-slim.dev/proc` 面向拥有整个进程生命周期的 CLI 和服务入口。它提供当前进程信息、信号回调、强制退出时限与子命令执行。
+
+```sh
+go get go-slim.dev/proc
+```
+
+当前模块要求 Go 1.24 或更高版本。
+
+<Callout type="warning" title="导入即产生进程级副作用">
+  包初始化时会调用 `signal.Notify`，接管 `SIGHUP`、`SIGINT`、`SIGQUIT`
+  和 `SIGTERM`。收到其中任一信号后，它会运行 shutdown 流程并退出。
+</Callout>
+
+## 先判断是否适合
+
+| 场景 | 建议 |
+| --- | --- |
+| 你在编写最终的 `main`/命令入口，且接受这套信号策略 | 可以使用 `proc` |
+| 你在编写会被其他程序导入的 library | 不建议导入 `proc` |
+| 应用已使用 `signal.NotifyContext` 或另一个 supervisor | 保留一个信号所有者，避免策略竞争 |
+| 只需运行一个子命令，并需要精确 I/O/取消控制 | 当前更适合直接使用 `os/exec` |
+
+## 包含的能力
+
+- `Pid`、`Name`、`WorkDir`、`Path` 读取启动时的进程信息。
+- `On`、`Once`、`Cancel`、`Wait`、`Notify` 组织信号回调。
+- `SetTimeToForceQuit` 与 `Shutdown` 执行有强制终止上限的退出流程。
+- `Exec` 从 Go 代码启动外部命令。
+
+## 渐进阅读
+
+- [运行子命令](/zh-Hans/libraries/proc/guide/run-child-command)：工作目录、环境、超时与当前限制。
+- [处理信号与退出](/zh-Hans/libraries/proc/guide/handle-signals)：注册清理任务并理解强制终止。
+- [生命周期与平台边界](/zh-Hans/libraries/proc/advanced/lifecycle-and-platform-boundaries)：导入副作用、全局状态、测试与 Unix/Windows 差异。
+
+<Callout type="info" title="设计思想">
+  `proc` 选择“进程所有者”而不是“中立工具箱”：通过固定信号和最终退出策略减少入口代码，代价是不适合需要由宿主决定生命周期的可复用库。
+</Callout>

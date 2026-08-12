@@ -1,0 +1,54 @@
+---
+title: misc
+sidebarTitle: Overview
+description: Focused helpers for HTTP inspection, security-sensitive values, composition, templates, and generics.
+icon: tool
+---
+
+# misc
+
+`go-slim.dev/misc` collects small, independent Go helpers for HTTP request inspection, client-IP extraction, digests and passwords, sequential function composition, template interpolation, generic values, ordered math, and carefully scoped zero-copy conversion.
+
+Prefer the standard library whenever it expresses an operation just as clearly. `misc` is not a framework, middleware stack, binding package, validator, renderer, or configuration system.
+
+## Install
+
+```sh
+go get go-slim.dev/misc
+```
+
+The module requires Go 1.25.5 or later. Runtime dependencies are `go-slim.dev/nego` for shared HTTP constants and `golang.org/x/crypto/bcrypt` for password hashing.
+
+## Helper map
+
+| Area | API |
+| --- | --- |
+| Request inspection | `IsTLS`, `IsWebSocket`, `Scheme`, `Redirect` |
+| Client address | `RealIP`, direct/XFF/X-Real-IP extractors and trust options |
+| Digests and passwords | `MD5`, `Sha1`, `Sha256`, `PasswordHash`, `PasswordVerify` |
+| Sequential flow | `Call`, `CallG`, `Wrap`, `WrapG` |
+| Templates | `Substitute`, `Interpolate`, `Tmpl`, `TagFunc` |
+| Generic values | `Zero`, `Ptr`, `Nil`, `IsZero`, `IsNil`, `Coalesce` |
+| Ordered math | `MinMax`, `Clamp` |
+| Unsafe conversion | `BytesToString`, `StringToBytes` |
+
+## Continue reading
+
+- [HTTP and client IP](/libraries/misc/guide/http-and-client-ip) explains forwarded-header trust and direct-peer extraction.
+- [Digests and composition](/libraries/misc/guide/digests-and-composition) covers bcrypt, checksum boundaries, and sequential functions.
+- [Templates and values](/libraries/misc/guide/templates-and-values) covers interpolation, generic zero/nil semantics, and ordered math.
+- [Unsafe and deprecated APIs](/libraries/misc/advanced/unsafe-and-deprecated) explains aliasing rules and standard-library replacements.
+
+## Design rules
+
+- HTTP inspection expects non-nil requests and does not hide programmer errors.
+- Proxy headers are untrusted unless the deployment establishes a specific proxy boundary.
+- Passwords use bcrypt; MD5 and SHA-1 are compatibility checksums only.
+- Composition returns the first error unchanged and does not recover panics.
+- `IsZero` and `IsNil` intentionally answer different questions.
+- Unsafe conversions share storage; ownership and synchronization belong to the caller.
+
+<Callout title="Small does not mean policy-free">
+  Client IP, password storage, template output, and zero-copy aliases all carry
+  security or ownership policy. Make that policy visible at the call site.
+</Callout>

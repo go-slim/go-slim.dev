@@ -1,0 +1,58 @@
+title: tracing
+description:
+  en-US: In-process business observability for Go applications.
+  zh-Hans: 面向 Go 应用的进程内业务观测库。
+icon: icons/shield.svg
+llms:
+  repository: go-slim/tracing
+  skillDescription: Tracing is a Go package for in-process business observability.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    trace: "描述一次业务操作完整因果链的追踪记录。"
+    Trace: "描述一次业务操作完整因果链的追踪记录。"
+    span: "trace 中表示一个有开始、结束和属性的工作区间。"
+    Span: "trace 中表示一个有开始、结束和属性的工作区间。"
+    "root span": "没有父 span、代表整条 trace 起点的 span。"
+    "child span": "由父 span 派生、表示下一级操作的 span。"
+    "current span": "当前 context 中正在记录的 span。"
+    event: "附着在 span 时间线上的瞬时业务事实。"
+    Event: "附着在 span 时间线上的瞬时业务事实。"
+    attribute: "附着在 trace、span 或 event 上的结构化键值信息。"
+    Attribute: "附着在 trace、span 或 event 上的结构化键值信息。"
+    log: "带时间与上下文的诊断记录。"
+    Log: "带时间与上下文的诊断记录。"
+    batch: "为减少存储或导出开销而成组处理的一批记录。"
+    exporter: "把观测数据发送到外部系统的导出组件。"
+    OpenTelemetry: "用于生成、传输和处理遥测数据的开放标准与工具生态。"
+    sampling: "只保留部分 trace 或 span 以控制开销的采样策略。"
+    retention: "观测数据在被删除前保留多长时间或保留多少容量的策略。"
+    compaction: "把零散记录合并或重写以回收空间的存储维护过程。"
+    backpressure: "下游处理不过来时向上游传递的限速或拒绝压力。"
+    "high watermark": "触发限流、刷新或清理动作的高位容量阈值。"
+    Observer: "接收 trace 生命周期事件并执行存储或导出的观察者。"
+    tracer: "创建和管理 trace、span 的入口对象。"
+    tracing: "记录并关联一次业务操作中各阶段因果关系的追踪过程。"
+    runner: "拥有后台循环并协调启动、停止和清理的运行器。"
+    readiness: "组件是否已准备好接收或处理新工作的就绪状态。"
+    builder: "通过链式设置逐步构造 trace、span 或 event 的构建器。"
+    flush: "把内存中尚未持久化或导出的观测记录立即推送出去。"
+    sample: "决定某条 trace 或 span 是否被保留的一次采样结果。"
+    producer: "创建 trace、span、event 或 log 记录的业务代码。"
+    queue: "在生产者与批量存储之间缓冲观测记录的队列。"
+    worker: "从队列取得数据并执行批量存储或导出的后台工作单元。"
+    Endpoint: "提供健康、查询或运维能力的 HTTP 端点。"
+    "health projection": "根据内部状态投影出的对外健康或就绪判断。"
+    Service: "用于标识产生观测数据的应用服务。"
+    UI: "User Interface，用于查询和查看观测数据的用户界面。"
+    checkpoint: "记录持久化或扫描已安全推进到哪个位置的检查点。"
+    cursor: "分页或扫描时标记当前位置、供下一次继续读取的游标。"
+    Cursor: "分页或扫描时标记当前位置、供下一次继续读取的游标。"
+    checksum: "用于检测存储帧或记录意外损坏的校验值。"
+    Checksum: "用于检测存储帧或记录意外损坏的校验值。"
+    "best effort": "允许在拥塞或故障时丢弃部分观测数据、优先保护业务可用性的策略。"
+    "append-only frame": "只追加写入、用于批量保存观测记录的存储帧。"
+    "correlation values": "用于在不同日志或追踪记录之间建立关联的标识值。"
+showInNavigation: true

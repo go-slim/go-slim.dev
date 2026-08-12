@@ -1,0 +1,84 @@
+---
+title: Collection
+description: Run the process-wide handler, understand loss and batching, and coordinate readiness and shutdown.
+---
+
+# Collection
+
+Every tracer publishes into one process-wide, bounded collection queue. `Handler` is the root package's only external consumption boundary:
+
+```go
+type Handler interface {
+	Handle(context.Context, tracing.Batch) error
+}
+```
+
+Business goroutines perform non-blocking sends and never wait for `Handle`.
+
+## Start with readiness
+
+Use the ready variant when instrumentation must be active before business components start:
+
+```go
+runCtx, cancel := context.WithCancel(context.Background())
+ready := make(chan struct{})
+done := make(chan error, 1)
+
+go func() {
+	done <- tracing.RunHandlerWithReady(runCtx, exporter, ready)
+}()
+
+select {
+case <-ready:
+	// Start request handlers and workers.
+case err := <-done:
+	cancel()
+	return err
+}
+```
+
+Only one runner can be active; another returns `ErrHandlerRunning`. A nil handler returns `ErrNilHandler`. The ready channel must be non-nil and should have a receiver waiting.
+
+## Fixed collection behavior
+
+| Property | Value |
+| --- | --- |
+| Queue capacity | 1000 records |
+| Batch size | 100 records |
+| Flush interval | 100 ms |
+| Shutdown drain window | At most 5 seconds |
+
+Records are dropped when no runner accepts them, shutdown has closed acceptance, or the queue is full. Handler errors and panics drop the current batch and later batches continue. Diagnostic reports are rate-limited through `log/slog`, not recursively sent into tracing.
+
+This is availability-oriented observability, not guaranteed delivery. Never use trace collection as the only record of a payment, state transition, or audit fact.
+
+## Owner backfill
+
+A trace or span may be created before the runner starts and its start record may be lost. When a later event, log, or span end is accepted, batching attempts to include missing owner trace/span/ancestor starts. A completely silent span that ended while nothing was accepted cannot be reconstructed.
+
+The behavior improves query consistency but does not make collection lossless.
+
+## Handler ownership
+
+Batch slices belong to the runner and may be reused after `Handle` returns. Clone all records and nested values before retaining or handing them to an asynchronous system.
+
+`Handle` runs serially in the collection loop. Slow work delays all collection and eventually fills the producer queue. Keep it bounded, or hand off cloned data to another bounded queue with an explicit drop/backpressure policy.
+
+## Fan-out
+
+```go
+handler := tracing.HandlerFunc(func(ctx context.Context, batch tracing.Batch) error {
+	return errors.Join(
+		localStore.Handle(ctx, batch),
+		remoteExporter.Handle(ctx, cloneBatch(batch)),
+	)
+})
+```
+
+One slow downstream slows the combined handler. Parallel fan-out still needs lifetime-safe copies and bounded concurrency.
+
+## Shutdown
+
+Cancel the runner only after business producers have stopped. The runner closes acceptance, waits for in-flight emitters, and attempts a bounded flush before returning `ctx.Err()` under normal cancellation.
+
+If the handler owns a separate resource such as storage, wait for the runner to return before closing that resource.

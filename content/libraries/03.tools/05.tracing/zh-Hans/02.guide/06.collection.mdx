@@ -1,0 +1,84 @@
+---
+title: 采集
+description: 运行 process-wide handler，理解丢失与 batch，并协调 readiness 和 shutdown。
+---
+
+# 采集
+
+每个 tracer 都向同一个 process-wide 有界采集队列发布。`Handler` 是根包唯一外部消费边界：
+
+```go
+type Handler interface {
+	Handle(context.Context, tracing.Batch) error
+}
+```
+
+业务 goroutine 使用非阻塞 send，永远不等待 `Handle`。
+
+## 带 readiness 启动
+
+业务组件启动前必须保证埋点可用时，使用 ready variant：
+
+```go
+runCtx, cancel := context.WithCancel(context.Background())
+ready := make(chan struct{})
+done := make(chan error, 1)
+
+go func() {
+	done <- tracing.RunHandlerWithReady(runCtx, exporter, ready)
+}()
+
+select {
+case <-ready:
+	// 启动 request handler 与 worker。
+case err := <-done:
+	cancel()
+	return err
+}
+```
+
+只能有一个 runner；第二个返回 `ErrHandlerRunning`。Nil handler 返回 `ErrNilHandler`。Ready channel 不能为 nil，并应已有接收方等待。
+
+## 固定采集行为
+
+| 属性 | 值 |
+| --- | --- |
+| Queue capacity | 1000 records |
+| Batch size | 100 records |
+| Flush interval | 100 ms |
+| Shutdown drain window | 最多 5 秒 |
+
+没有 runner 接收、shutdown 已关闭入口或 queue 满时会丢记录。Handler error 与 panic 会丢弃当前 batch，后续 batch 继续处理。诊断通过 `log/slog` 限频输出，不会递归进入 tracing。
+
+这是 availability-oriented observability，不是 guaranteed delivery。Payment、状态转换或 audit fact 绝不能只保存在 trace collection。
+
+## Owner backfill
+
+Trace/span 可能在 runner 启动前创建，其 start record 会丢失。之后 event、log 或 span end 被接收时，batch 会尝试补入缺失的 owner trace/span/ancestor start。完全没有记录在采集期间被接收的已结束 span 无法重建。
+
+这会提高 query consistency，但不会让采集变成 lossless。
+
+## Handler ownership
+
+Batch slice 属于 runner，`Handle` 返回后可能复用。需要保留或交给异步系统时，必须复制所有 record 和 nested value。
+
+`Handle` 在 collection loop 内串行运行。慢工作会延迟全部采集并最终填满 producer queue。应保持有界，或把 cloned data 转交另一个有界 queue，并明确 drop/backpressure policy。
+
+## Fan-out
+
+```go
+handler := tracing.HandlerFunc(func(ctx context.Context, batch tracing.Batch) error {
+	return errors.Join(
+		localStore.Handle(ctx, batch),
+		remoteExporter.Handle(ctx, cloneBatch(batch)),
+	)
+})
+```
+
+一个慢 downstream 会拖慢组合 handler。并行 fan-out 仍需要 lifetime-safe copy 和有界并发。
+
+## Shutdown
+
+只有业务 producer 全部停止后才取消 runner。Runner 会关闭入口、等待 in-flight emitter，并尝试有界 flush；正常 cancellation 最后返回 `ctx.Err()`。
+
+Handler 拥有 storage 等独立资源时，应等待 runner 返回后再关闭资源。

@@ -1,0 +1,79 @@
+---
+title: 校验用户输入
+description: 用显式的 Go 控制流组合必填、格式、枚举和长度规则。
+---
+
+# 校验用户输入
+
+从一个专用输入结构体开始，先解码，再执行业务可读的检查。
+
+```go
+type createProjectInput struct {
+	Name     string
+	Owner    string
+	Timezone string
+	Mode     string
+}
+
+func (in createProjectInput) Validate() error {
+	if !is.LengthBetween(in.Name, 2, 80) {
+		return errors.New("name must contain 2 to 80 characters")
+	}
+	if !is.Email(in.Owner) {
+		return errors.New("owner must be an email address")
+	}
+	if !is.Timezone(in.Timezone) {
+		return errors.New("timezone must be an IANA name such as Asia/Shanghai")
+	}
+	if !is.OneOf(in.Mode, []any{"private", "public"}) {
+		return errors.New("mode must be private or public")
+	}
+	return nil
+}
+```
+
+这种写法让失败条件、用户文案和字段语义保持在同一处。
+
+## 先判断必填，再判断格式
+
+```go
+if !is.NotEmpty(input.Email) {
+	return errors.New("email is required")
+}
+if !is.Email(input.Email) {
+	return errors.New("email has an invalid format")
+}
+```
+
+特定格式谓词不等价于“必填”规则。将两者分开，才能给用户准确的失败原因。
+
+## 一次返回多个问题
+
+`is` 不规定错误结构。如果 API 需要一次展示多个字段错误，在应用层聚合：
+
+```go
+var problems []string
+
+if !is.Email(input.Email) {
+	problems = append(problems, "email has an invalid format")
+}
+if !is.LengthBetween(input.DisplayName, 2, 40) {
+	problems = append(problems, "display_name must contain 2 to 40 characters")
+}
+
+if len(problems) > 0 {
+	return problems
+}
+```
+
+## 长度与范围
+
+- `Length(value, n, op)` 适合精确长度或单边界。
+- `LengthBetween(value, min, max)` 是包含边界的区间检查，要求 `min < max`。
+- 需要精确长度时使用 `Length(value, n, "=")`；不要向 `LengthBetween` 传相同上下界，当前实现会 panic。
+
+<Callout type="warning" title="验证成功不是授权成功">
+  即使 email、ID、路径或 URL 格式通过，也仍需要权限检查、资源归属校验和业务状态校验。
+</Callout>
+
+下一步：[按任务查找谓词](/zh-Hans/libraries/is/guide/find-a-predicate)。

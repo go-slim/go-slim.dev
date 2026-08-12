@@ -1,0 +1,40 @@
+---
+title: Semantics and security
+description: Understand predicate non-goals, empty-value semantics, known limits, and filesystem TOCTOU risk.
+---
+
+# Semantics and security
+
+## Valid shape does not mean trusted content
+
+| Predicate | What it establishes | What it does not establish |
+| --- | --- | --- |
+| `JWT` | The string has a three-part token shape | Signature, algorithm, expiry, or claims are trusted |
+| `URL` | `ParseRequestURI` accepts it and a scheme exists | A host exists, the target is reachable, or it is safe from SSRF |
+| `MD5` / `SHA256` | The string resembles that digest | Data integrity has been verified |
+| `Idcard` | The string matches a length and character pattern | Checksum or real identity |
+| `Email` | The email string has an accepted shape | The mailbox exists or belongs to the current user |
+
+Use a dedicated parser or verifier for security-sensitive content, then validate business properties after parsing.
+
+## `Empty` uses broad Go zero-value semantics
+
+`Empty` considers empty strings, zero-length collections, numeric `0`, `false`, nil pointers/interfaces, and zero `time.Time` values empty.
+
+If `0` or `false` is a valid user choice, do not use `NotEmpty` to detect whether it was supplied. Use a pointer, an explicit presence field, or presence information from your decoder.
+
+## Do not use `Between` in the current version
+
+<Callout type="danger" title="Known Between / NotBetween implementation defect">
+  The current source requires `min > max`, the opposite of its public `min < max` contract. Normal bounds panic, while reversed bounds cannot produce useful interval semantics. Until a fixed release is available, use ordinary Go comparisons or two `Compare` calls.
+</Callout>
+
+```go
+valid := value >= min && value <= max
+```
+
+`LengthBetween` does use normal `min < max` ordering, but equal bounds also panic. Use `Length` for an exact length.
+
+## `File` and `Dir` are momentary observations
+
+`File` and `Dir` call `os.Stat`. A path can still be replaced or removed after the predicate succeeds and before you open it. Never treat these checks as authorization boundaries. Handle errors at the real filesystem operation and constrain the accessible root directory.

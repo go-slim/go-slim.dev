@@ -1,0 +1,93 @@
+---
+title: Getting started
+description: Start a verifiable handler and emit your first trace, span, and log.
+---
+
+# Getting started
+
+This page has one goal: deliver one business operation to a handler and verify in code that the collection path works.
+
+## Install
+
+```sh
+go get go-slim.dev/tracing
+```
+
+The module requires Go 1.25.5 or later.
+
+## Start a handler and wait for readiness
+
+```go
+runCtx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+ready := make(chan struct{})
+received := make(chan tracing.Batch, 1)
+done := make(chan error, 1)
+
+handler := tracing.HandlerFunc(func(_ context.Context, batch tracing.Batch) error {
+	received <- batch
+	return nil
+})
+
+go func() {
+	done <- tracing.RunHandlerWithReady(runCtx, handler, ready)
+}()
+
+select {
+case <-ready:
+	// Only now start application components that emit records.
+case err := <-done:
+	return fmt.Errorf("start tracing handler: %w", err)
+}
+```
+
+`ready` confirms the collection loop is accepting records, not merely that a goroutine was created.
+
+## Emit one observable operation
+
+```go
+tracer := tracing.NewTracer()
+ctx, _ := tracer.Start(
+	context.Background(),
+	tracing.String("request_id", "req-42"),
+)
+
+ctx, span, err := tracing.OpenSpan(ctx, "inventory.sync")
+if err != nil {
+	return err
+}
+
+span.Info("inventory.started").Log("inventory synchronization started")
+span.End()
+```
+
+`OpenSpan` does not create a trace implicitly. Its context must first come from `Tracer.Start`.
+
+## Verify instead of guessing
+
+```go
+select {
+case batch := <-received:
+	if len(batch.Traces) == 0 || len(batch.Spans) == 0 || len(batch.Logs) == 0 {
+		return errors.New("incomplete tracing batch")
+	}
+case <-time.After(time.Second):
+	return errors.New("tracing batch was not collected")
+}
+```
+
+The handler flushes a partial batch after at most 100ms; one second is only an outer test bound for this example.
+
+## Shut down in ownership order
+
+1. Stop HTTP handlers, workers, and other producers.
+2. Call `cancel()` to close the collection input.
+3. Wait for `<-done` so the runner can attempt its bounded flush.
+4. Finally close storage or network resources owned by the handler.
+
+<Callout type="warning" title="A trace is not business persistence">
+  Collection is best effort. Payment success, order transitions, and audit facts must still be written to application-owned durable storage.
+</Callout>
+
+Next: [understand the record model](/libraries/tracing/guide/model).

@@ -1,0 +1,56 @@
+---
+title: Handle signals and shutdown
+description: Register callbacks, bound cleanup time, and avoid mistaking forced termination for notification.
+---
+
+# Handle signals and shutdown
+
+## Register cleanup for the main process
+
+```go
+proc.SetTimeToForceQuit(10 * time.Second)
+
+proc.Once(syscall.SIGTERM, func() {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	_ = server.Shutdown(ctx)
+	_ = database.Close()
+})
+```
+
+`Once` returns a listener ID that can be canceled before it runs:
+
+```go
+id := proc.On(syscall.SIGUSR1, reload)
+defer proc.Cancel(id)
+```
+
+`On` fires repeatedly; `Once` fires at most once. `Notify` manually dispatches callbacks inside the process. It runs matching callbacks concurrently and waits for all of them. Callback panics are recovered and written to `Logger`.
+
+<Callout type="warning" title="Four common signals are normalized to SIGTERM shutdown">
+  OS-delivered `SIGHUP`, `SIGINT`, `SIGQUIT`, and `SIGTERM` all enter `Shutdown(SIGTERM)`. Therefore `On(SIGHUP, reload)` does not handle a real SIGHUP, while `SIGTERM` callbacks run for any of those four signals. This fixed policy does not fit applications that use SIGHUP for hot reload.
+</Callout>
+
+## `Shutdown` terminates the current process
+
+<Callout type="danger" title="Shutdown is not just event publication">
+  `Shutdown(sig)` always ends by sending `sig` to the current process (or directly killing it on Windows). Do not call it as a cleanup helper from a request handler, reusable library, or the main unit-test process.
+</Callout>
+
+With no delay, `Shutdown` waits synchronously for `SIGTERM` callbacks and then terminates immediately. With a positive delay, it notifies callbacks in a goroutine, waits the fixed duration, and then force-terminates. It does not exit early when callbacks finish early.
+
+## Use `Wait`
+
+```go
+proc.Wait(syscall.SIGUSR1)
+```
+
+`Wait` registers a one-shot listener and blocks the current goroutine. An invalid or unsupported signal cannot be registered, and the current implementation will then wait forever. Do not use it for `SIGHUP`, `SIGINT`, or `SIGQUIT`, which the package normalizes into shutdown instead of dispatching under their original signal.
+
+## Callback constraints
+
+- Callbacks may run concurrently; synchronize shared resources yourself.
+- Callbacks return no error; log important cleanup failures explicitly.
+- Callbacks receive no context; create a timeout shorter than the force-exit window.
+- Do not depend on ordering among several callbacks.

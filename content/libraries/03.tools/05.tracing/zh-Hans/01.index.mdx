@@ -1,0 +1,72 @@
+---
+title: tracing
+sidebarTitle: 概览
+description: 提供 trace、span、event、log、storage 与 HTTP 查询接口的进程内业务观测库。
+icon: shield
+---
+
+# tracing
+
+`go-slim.dev/tracing` 是面向 Go 业务代码的进程内观测库。它提供 trace、span、event、结构化业务 log、有界非阻塞采集、本地分段存储，以及标准 `net/http` 查询和实时流接口。
+
+<Callout title="不是 OpenTelemetry">
+  tracing 不是 OpenTelemetry 或 W3C Trace Context 实现。它不提供跨进程传播、远程 exporter、采样协议或指标采集。
+</Callout>
+
+## 安装
+
+```sh
+go get go-slim.dev/tracing
+```
+
+根包只依赖标准库。`tracing/storage` 和 `tracing/http` 提供存储与查询表面。
+
+## 包方向
+
+依赖方向是有意固定的：
+
+```text
+business -> tracing <- tracing/storage <- tracing/http
+```
+
+业务代码导入根包并产生观测记录。storage 通过 handler 边界消费 batch。HTTP 读取 storage engine 并暴露查询/流式接口。
+
+## 记录什么
+
+```text
+Tracer.Start
+└── Trace
+    └── Span
+        ├── Span
+        ├── Event
+        └── Log
+```
+
+当应用需要围绕 HTTP 请求、队列任务、后台 worker 或领域流程做本地业务观测时，使用 tracing。
+
+## 适合的问题
+
+tracing 适合回答业务向问题：
+
+- 哪个操作触发了这个后台 job？
+- 哪个 span 产生了这个领域 event？
+- 一个 workflow 内发生了哪些 service-level log？
+- 即使 export/storage 后续丢弃记录，handler 是否产生过 trace？
+
+它不是基础设施 telemetry 的替代品。需要跨进程标准、远程 exporter、采样控制、dashboard 或告警集成时，应使用 OpenTelemetry、metrics 或日志系统。
+
+## 文档导航
+
+- [快速开始](/zh-Hans/libraries/tracing/guide/getting-started) 先完成一次可验证的采集，再接入业务代码。
+- [模型](/zh-Hans/libraries/tracing/guide/model) 定义 trace、span、event、log、identity 与 attribute ownership。
+- [埋点](/zh-Hans/libraries/tracing/guide/instrumentation) 介绍 HTTP、domain 与异步边界。
+- [Context 与并发](/zh-Hans/libraries/tracing/guide/context-and-concurrency) 解释 root/child 规则和 goroutine ownership。
+- [采集](/zh-Hans/libraries/tracing/guide/collection) 解释有损 process-wide queue 与 handler lifecycle。
+- [本地存储](/zh-Hans/libraries/tracing/advanced/storage) 介绍 segment、recovery、retention、cleanup 和 durability。
+- [HTTP 查询与 stream](/zh-Hans/libraries/tracing/advanced/http-queries) 介绍 read endpoint、cursor 和 NDJSON update。
+- [生产运维](/zh-Hans/libraries/tracing/advanced/operations) 介绍安全暴露、启停、容量与诊断。
+
+<Callout title="Best effort 是有意设计">
+  埋点不会对业务工作施加 backpressure。采集未运行、队列满、handler 失败或关闭时
+  都可能丢记录。关键业务事实仍必须写入应用自己的存储。
+</Callout>

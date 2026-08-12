@@ -1,0 +1,32 @@
+---
+title: icu
+sidebarTitle: Overview
+description: Understand the ICU-style parse/render model and its current readiness.
+icon: language
+---
+
+# icu
+
+`go-slim.dev/icu` aims to parse parameterized messages with number/date formats and conditional branches into an AST, then render them for a locale. This model separates translation syntax errors from per-request variable substitution.
+
+<Callout type="danger" title="The current source is not ready to integrate">
+  At source revision `f97e402`, `go.mod` does not declare the imported `golang.org/x/text/language`, so a clean checkout fails `go test ./...`. After manually adding that dependency, a simple `{name}` variable still renders as `&lt;nil&gt;`, and plural rendering fails while converting nil. Do not use this revision in production or a new project until both defects are fixed and tested.
+</Callout>
+
+## How to read these docs
+
+The documentation does not treat unverified README output as a working contract. It has three layers:
+
+1. [Integration readiness](/libraries/icu/guide/integration-readiness) lists blockers that must be fixed and verified first.
+2. [Message model](/libraries/icu/guide/message-model) explains the intended parse-once/render-many workflow.
+3. [Formatting, extension, and boundaries](/libraries/icu/advanced/formatting-and-extension) documents actual locale, plural, context, and custom-formatter semantics.
+
+## When to adopt it
+
+At minimum, require: a clean checkout builds; executable tests cover simple and missing variables, select, plural, number, date, and concurrent rendering; and the supported syntax is distinguished clearly from full ICU MessageFormat.
+
+Until then, choose an implementation with specification conformance tests when mature ICU compatibility is required. For a small fixed set of parameters, standard-library formatting plus an application-owned translation table is more predictable.
+
+<Callout type="info" title="Design intent">
+  Parse first, render later is a sound boundary: translation syntax can fail during resource loading, while requests only supply variables. The AST architecture alone, however, cannot replace rendering correctness, locale rules, and concurrency tests.
+</Callout>

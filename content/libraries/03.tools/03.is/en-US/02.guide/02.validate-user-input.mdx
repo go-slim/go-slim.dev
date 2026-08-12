@@ -1,0 +1,79 @@
+---
+title: Validate user input
+description: Compose required, format, enum, and length rules with explicit Go control flow.
+---
+
+# Validate user input
+
+Start with a dedicated input type. Decode first, then run checks that use business-readable messages.
+
+```go
+type createProjectInput struct {
+	Name     string
+	Owner    string
+	Timezone string
+	Mode     string
+}
+
+func (in createProjectInput) Validate() error {
+	if !is.LengthBetween(in.Name, 2, 80) {
+		return errors.New("name must contain 2 to 80 characters")
+	}
+	if !is.Email(in.Owner) {
+		return errors.New("owner must be an email address")
+	}
+	if !is.Timezone(in.Timezone) {
+		return errors.New("timezone must be an IANA name such as Europe/Paris")
+	}
+	if !is.OneOf(in.Mode, []any{"private", "public"}) {
+		return errors.New("mode must be private or public")
+	}
+	return nil
+}
+```
+
+This keeps failure conditions, user messages, and field meaning in one place.
+
+## Check presence before shape
+
+```go
+if !is.NotEmpty(input.Email) {
+	return errors.New("email is required")
+}
+if !is.Email(input.Email) {
+	return errors.New("email has an invalid format")
+}
+```
+
+A format predicate is not necessarily a required-value rule. Keep those checks separate so the user receives the right explanation.
+
+## Return several problems at once
+
+`is` does not prescribe an error type. Aggregate application errors when an API should report several fields in one response:
+
+```go
+var problems []string
+
+if !is.Email(input.Email) {
+	problems = append(problems, "email has an invalid format")
+}
+if !is.LengthBetween(input.DisplayName, 2, 40) {
+	problems = append(problems, "display_name must contain 2 to 40 characters")
+}
+
+if len(problems) > 0 {
+	return problems
+}
+```
+
+## Length and range
+
+- `Length(value, n, op)` handles exact length and one-sided limits.
+- `LengthBetween(value, min, max)` uses inclusive bounds and requires `min < max`.
+- For an exact length, use `Length(value, n, "=")`. Passing equal bounds to `LengthBetween` currently panics.
+
+<Callout type="warning" title="Validation is not authorization">
+  A well-shaped email, ID, path, or URL still needs permission, ownership, and business-state checks.
+</Callout>
+
+Next: [find a predicate by task](/libraries/is/guide/find-a-predicate).

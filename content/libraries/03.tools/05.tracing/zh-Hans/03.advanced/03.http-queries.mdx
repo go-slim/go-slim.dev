@@ -1,0 +1,64 @@
+---
+title: HTTP 查询与 stream
+description: 从本地存储暴露只读 JSON 查询和有界 NDJSON change notification。
+---
+
+# HTTP 查询与 stream
+
+`go-slim.dev/tracing/http`（package name `tracinghttp`）把 storage engine 适配成标准 `http.Handler`：
+
+```go
+traces := tracinghttp.NewHandler(
+	engine,
+	tracinghttp.WithStreamNotifyInterval(500*time.Millisecond),
+	tracinghttp.WithStreamPendingLimit(4096),
+)
+
+adminMux.Handle("/observability/", http.StripPrefix("/observability", traces))
+```
+
+它只提供 JSON/NDJSON，不包含 UI、write API、authentication、authorization、CORS 或应用 response envelope。
+
+## Endpoint
+
+| Endpoint | 结果 |
+| --- | --- |
+| `GET /traces` | 带稳定 cursor pagination 的过滤 trace summary |
+| `GET /traces/{trace_id}` | 单个 trace 与局部 attribute |
+| `GET /traces/{trace_id}/spans` | 按 start time 与 ID 排序的 span |
+| `GET /traces/{trace_id}/timeline` | Event/log timeline，可按 span 过滤 |
+| `GET /events/{event_id}` | Event detail |
+| `GET /events/{event_id}/traces` | 被 event 触发的 trace |
+| `GET /services` | 当前与每日 service health projection |
+| `GET /services/{service}/samples` | 指定 service/day 的 sample |
+| `GET /stream` | NDJSON trace summary 与 health change |
+
+Trace filter 包含 `cursor`、`limit`、`from`、`to`、`min_level`、`service` 和 `q`。Span/timeline page 使用 `cursor` 与 `limit`，timeline 还支持 `span_id`。Service 支持重复 `service`、`days`、`after` 与 `limit`，sample 要求 `day`。
+
+返回的 opaque `next_cursor` 应保持相同 query 原样使用。Cursor 与 query/order 语义绑定，非法或不匹配会返回 client error。Page limit 默认 100，不能超过 500。
+
+## Stream protocol
+
+`/stream` 使用 `application/x-ndjson`。第一条消息：
+
+```json
+{"type":"ready","revision":42}
+```
+
+之后是 `patch` 或 `heartbeat`，终止性内部故障可能发送 `error`。每条连接的 pending unique change 有界；落后时 patch 会要求 `reload_traces` 或 `reload_services`，而不是无限保留 detail。
+
+避免 snapshot/stream race：
+
+1. 连接 `/stream` 并收到带 revision 的 `ready`；
+2. 获取当前 JSON snapshot；
+3. 应用后续 patch，遇到 reload flag 时重新加载对应 view。
+
+Stream 有 server-side heartbeat、write timeout 与 maximum lifetime。Client 必须 reconnect 并重新 query；它是 live invalidation channel，不是 durable event delivery。
+
+## 避免自我生成 trace
+
+应用 request-tracing middleware 应跳过这些 read endpoint，否则每次观测查询都会创建新 trace，live reader 可能形成 feedback loop。
+
+## 安全挂载
+
+Observation attribute、log detail、service name 和搜索结果可能包含业务或个人数据。Handler 必须放在 internal routing 与 authorization 后面；streaming 场景谨慎应用 response compression，并按需关闭 proxy buffering。

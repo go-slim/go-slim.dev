@@ -1,0 +1,53 @@
+---
+title: 集成前检查
+description: 在采用 icu 之前验证模块完整性、基本渲染、语法子集和并发行为。
+---
+
+# 集成前检查
+
+本页的结论是：当前源码不应直接成为应用依赖。先修复阻断问题，再用一组用户可见行为判断它是否可采用。
+
+## 当前的两个阻断项
+
+### 1. 模块依赖不完整
+
+源码导入 `golang.org/x/text/language`，但 `go.mod` 只有 module path 和 Go 版本。干净 checkout 中运行：
+
+```sh
+go test ./...
+```
+
+会因缺失 module requirement 失败。这应在库自身的 `go.mod`/`go.sum` 中修复，不应让每个用户手工补齐。
+
+### 2. 渲染时覆盖了变量
+
+`Renderer.renderPlaceholder` 在进入 formatter 前，用 `{placeholderName: nil}` 创建子 context。这会遮蔽调用者传入的真实值。实测结果：
+
+```text
+"Hello, {name}!" + name="World" -> "Hello, <nil>!"
+plural(count=5)                  -> nil 无法转换为数字
+```
+
+## 修复后必须有的契约测试
+
+| 能力 | 最少覆盖 |
+| --- | --- |
+| 解析 | 合法文本、未闭合占位符、嵌套 case、空白保留 |
+| 变量 | 字符串、数值、nil、缺失 key、同名嵌套变量 |
+| 分支 | `select`、精确 plural、`other` fallback、`#` 替换 |
+| 格式化 | 数字、货币、百分比、日期、时区、duration |
+| locale | 每个声称支持的 locale 都有 golden output |
+| 并发 | 同一 renderer 并发 Render，race detector 通过 |
+| context | 明确消费取消/deadline，或从 API 中去掉这个承诺 |
+
+```sh
+go test -race ./...
+```
+
+## 不要只用“能编译”验收
+
+这类库的错误会直接变成用户看到的文本。验收标准应是对外输出、错误契约与 locale 规则，不是 package 能否构建。
+
+<Callout type="warning" title="发布前收窄承诺">
+  当前实现是 ICU 风格语法的自定义子集，不应在没有规范符合性测试时声称“完整支持 ICU MessageFormat”。
+</Callout>

@@ -1,0 +1,85 @@
+---
+title: HTTP and client IP
+description: Inspect requests and derive client addresses only across an explicit proxy trust boundary.
+---
+
+# HTTP and client IP
+
+The HTTP helpers inspect standard `*http.Request` values and do not introduce middleware state.
+
+## TLS, scheme, and WebSocket detection
+
+```go
+directTLS := misc.IsTLS(r)
+scheme := misc.Scheme(r)
+upgrade := misc.IsWebSocket(r)
+```
+
+`IsTLS` checks only whether `Request.TLS` is non-nil. `IsWebSocket` requires `Upgrade: websocket` and a `Connection` value containing `upgrade`; it detects the handshake but does not serve it.
+
+`Scheme` chooses direct TLS first, then supported forwarded fields, then `http`. It understands `http`, `https`, `ws`, and `wss`, plus `X-Forwarded-Ssl: on`.
+
+<Callout title="Forwarded fields are not proof">
+  `Scheme` does not verify the connected peer. A trusted edge must remove
+  client-supplied forwarding fields and write canonical values before the
+  application uses them for redirects, cookies, or security decisions.
+</Callout>
+
+## Minimal redirect
+
+```go
+if err := misc.Redirect(w, http.StatusTemporaryRedirect, target); err != nil {
+	return fmt.Errorf("redirect: %w", err)
+}
+```
+
+`Redirect` accepts status 300 through 308, sets only `Location` and the status, and writes no body. An invalid code returns `ErrInvalidRedirectCode` before changing the response. Use `http.Redirect` when escaping and an HTML body are desired.
+
+## Direct client connection
+
+Without extractors, `RealIP` reads only `RemoteAddr`:
+
+```go
+ip := misc.RealIP(r)
+// Equivalent policy:
+ip = misc.RealIP(r, misc.ExtractIPDirect())
+```
+
+The direct extractor accepts host:port, bracketed IPv6 through `SplitHostPort`, and bare valid IP values. Malformed input yields an empty string.
+
+## X-Forwarded-For chain
+
+Configure the topology once at startup:
+
+```go
+_, proxyNet, err := net.ParseCIDR("203.0.113.0/24")
+if err != nil {
+	return err
+}
+
+extractClientIP := misc.ExtractIPFromXFFHeader(
+	misc.TrustLoopback(false),
+	misc.TrustLinkLocal(false),
+	misc.TrustPrivateNet(false),
+	misc.TrustIPRange(proxyNet),
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	ip := misc.RealIP(r, extractClientIP)
+	_ = ip
+}
+```
+
+The extractor joins all XFF lines, appends the direct peer, validates every hop, and scans right to left. It returns the nearest untrusted address. If all are trusted it returns the leftmost address; one malformed hop makes the entire chain unreliable and falls back to the direct peer.
+
+Loopback, link-local, and private ranges are trusted by default. That inherited default may not match a public-cloud or zero-trust topology, so configure each category explicitly.
+
+## X-Real-IP behavior
+
+`ExtractIPFromRealIPHeader` returns the field only when the address itself belongs to a trusted category or configured range; otherwise it returns the direct peer. This is not the same policy as accepting an arbitrary public client address from a known proxy.
+
+Both provided proxy-aware extractors fall back to `RemoteAddr` internally. Passing XFF and X-Real-IP extractors together does not create a reliable header-precedence chain because the first usually returns its fallback. Choose the one canonical field written by the edge, or implement an application-specific `IPExtractor`.
+
+## Safe uses
+
+Even a correctly derived IP is an unstable identity. Use it as one signal for logs, abuse controls, or coarse rate limiting—not as authentication. Normalize and length-bound values before using them in structured labels or audit data.

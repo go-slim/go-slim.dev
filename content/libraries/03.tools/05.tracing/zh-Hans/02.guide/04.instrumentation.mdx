@@ -1,0 +1,134 @@
+---
+title: 埋点
+description: 启动 trace、打开 span、产生 event/log，并显式传播 span context。
+---
+
+# 埋点
+
+创建 tracer，启动 trace，并围绕业务操作打开 span。
+
+```go
+tracer := tracing.NewTracer()
+ctx, _ = tracer.Start(
+	ctx,
+	tracing.String("request_id", requestID),
+)
+
+ctx, root, err := tracing.OpenSpan(
+	ctx,
+	"inventory.sync",
+	tracing.String("region", "east"),
+)
+if err != nil {
+	return err
+}
+defer root.End()
+```
+
+## Event 与 child span
+
+```go
+eventID := root.Event(
+	"inventory.received",
+	tracing.Int("items", len(items)),
+)
+
+child := root.Child("inventory.persist")
+defer child.End()
+
+childCtx := tracing.ContextWithSpan(ctx, child)
+child.Info("inventory.saved").
+	Service("inventory").
+	Int("items", len(items)).
+	Log("inventory persisted")
+
+persistNext(childCtx, eventID)
+```
+
+span context 需要显式传播。`ContextWithSpan` 将 span 绑定到 context；`SpanFromContext` 只读取，不隐式创建。
+
+## 从 event 启动
+
+异步工作应从触发 event 启动一个独立 trace：
+
+```go
+ctx, _ = tracer.StartFromEvent(
+	ctx,
+	message.EventID,
+	tracing.String("request_id", message.RequestID),
+)
+
+ctx, span, err := tracing.OpenSpan(ctx, "inventory.consume")
+if err != nil {
+	return err
+}
+defer span.End()
+```
+
+这样可以保留因果关系，同时不假装两个操作共享同一个进程内 span tree。
+
+## 必需 span 边界
+
+当某个操作要求已有 span 时，显式读取：
+
+```go
+span, ok := tracing.SpanFromContext(ctx)
+if !ok {
+	return errors.New("missing tracing span")
+}
+
+span.Warn("inventory.delayed").Log("inventory processing took too long")
+```
+
+只有边界能保证存在 span 时，才使用 `tracing.MustSpan(ctx)`。
+
+## HTTP 边界示例
+
+在 HTTP 边界启动一次 trace，并为 handler 打开 root span：
+
+```go
+func traceHTTP(tracer *tracing.Tracer, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := tracer.Start(
+			r.Context(),
+			tracing.String("method", r.Method),
+			tracing.String("path", r.URL.Path),
+		)
+
+		ctx, span, err := tracing.OpenSpan(ctx, "http.request")
+		if err != nil {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		defer span.End()
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+```
+
+协议细节留在边界，内部 span 使用领域名称。
+
+## 队列边界示例
+
+如果 job 是由 event 发布的，把 event ID 持久化到 job payload。消费者从这个 event 启动新 trace：
+
+```go
+eventID := span.Event("email.queued", tracing.String("template", "welcome"))
+
+_ = sendEmail.Publish(ctx, EmailTask{
+	EventID: eventID,
+	UserID:  userID,
+})
+```
+
+```go
+ctx, _ := tracer.StartFromEvent(ctx, task.EventID)
+ctx, span, err := tracing.OpenSpan(ctx, "email.send")
+if err != nil {
+	return err
+}
+defer span.End()
+```
+
+这样异步工作保持因果连接，但不会跨 goroutine、进程或持久队列边界共享一个 span。

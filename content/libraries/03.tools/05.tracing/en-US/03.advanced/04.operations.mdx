@@ -1,0 +1,66 @@
+---
+title: Production operations
+description: Coordinate lifecycle, retention, diagnostics, naming, sensitive data, and failure behavior.
+---
+
+# Production operations
+
+Treat tracing as a best-effort subsystem with explicit startup and shutdown—not as a hidden global whose failure controls business availability.
+
+## Startup order
+
+1. Open the storage engine and acquire its directory lock.
+2. Start `Engine.RunWithReady` and wait for readiness.
+3. Register protected HTTP query routes.
+4. Start instrumented request handlers, queues, and background components.
+
+Waiting for readiness prevents avoidable loss of early lifecycle records. If storage is optional, define an explicit degraded mode such as a discard handler or no collector; do not accidentally start two runners.
+
+## Shutdown order
+
+1. Stop accepting new business requests and jobs.
+2. Wait for business goroutines to finish and end their spans.
+3. Cancel the engine runner.
+4. Wait for `Run` to drain and return; context cancellation is the normal result.
+5. Call `Engine.Sync` when required, then `Engine.Close`.
+
+Closing storage before the collection loop exits turns the final drain into handler errors and dropped batches.
+
+## Capacity and retention
+
+Estimate record rate, average attributes/detail size, query horizon, and disk budget. Monitor `Engine.Stats`:
+
+- physical bytes near the high watermark;
+- dead bytes that indicate compaction opportunity;
+- segment count and cleanup progress;
+- trace/span/event/log counts and service cardinality.
+
+High-cardinality span names, service names, and attribute values make storage and queries less useful. Keep operation and `what` names stable; put bounded variable values in attributes.
+
+## Sensitive data
+
+Attributes and log details are application data. Do not record credentials, authorization headers, session cookies, full request/job bodies, payment data, or unbounded user input. Prefer internal IDs or redacted references and enforce retention that matches data policy.
+
+The HTTP layer needs authorization independently of the business application; “internal network” alone may not be sufficient.
+
+## Diagnostics
+
+Collection congestion, handler panics/errors, cleanup failures, observer panics, and HTTP internal errors are reported through `log/slog`. Route these logs to the application's operational logger and alert on repeated reports.
+
+Because diagnostics are deliberately not fed back into tracing, inspect both channels when debugging missing observations.
+
+## Instrumentation review
+
+- Every entry boundary starts one trace and one root span.
+- Every created span ends on all paths; children end before parents.
+- Concurrent operations use separate child spans.
+- Async boundaries persist `EventID` and start a new trace.
+- Log builders are completed exactly once.
+- Service is set only on logs intended to affect health projection.
+- Critical business facts remain durably stored outside tracing.
+
+## Testing
+
+Use a small in-memory `HandlerFunc` to assert names, attributes, and relationships. Start it with readiness before exercising code, clone retained batch data, cancel it after producers stop, and tolerate the asynchronous batching interval in tests.
+
+Run the source suite with `go test ./...`; use `go test -race ./...` when changing span ownership, handlers, storage observers, or live-stream behavior.

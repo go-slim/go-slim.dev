@@ -1,0 +1,41 @@
+---
+title: 语义与安全边界
+description: 理解格式谓词的非目标、空值语义、已知限制与 TOCTOU 风险。
+---
+
+# 语义与安全边界
+
+## 格式正确不代表内容可信
+
+| 谓词 | 它证明了什么 | 它没有证明什么 |
+| --- | --- | --- |
+| `JWT` | 字符串具有三段 token 外形 | 签名、算法、过期时间或 claims 可信 |
+| `URL` | `ParseRequestURI` 能解析且存在 scheme | host 存在、目标可访问或不会 SSRF |
+| `MD5` / `SHA256` | 字符串像指定摘要 | 数据完整性已验证 |
+| `Idcard` | 字符串符合长度与字符模式 | 校验位或身份真实性 |
+| `Email` | email 字符串外形可接受 | 邮箱存在或由当前用户控制 |
+
+安全敏感场景应使用专用 parser/verifier，并在解析后校验业务属性。
+
+## `Empty` 是 Go 零值风格的广义空
+
+`Empty` 将空字符串、长度为零的集合、数字 `0`、`false`、nil pointer/interface 和 zero `time.Time` 都视为空。
+
+因此，如果 `0` 或 `false` 是有效用户选择，不要用 `NotEmpty` 判断它是否提供。使用 pointer、额外的 presence 字段，或保留解码器提供的“字段存在”信息。
+
+## 当前版本不应使用 `Between`
+
+<Callout type="danger" title="Between / NotBetween 存在已知实现问题">
+  当前源码要求 `min > max`，与公开注释声称的 `min < max`
+  相反。按正常顺序传入边界会 panic，反向边界也无法得到有意义的区间结果。修复发布前，请使用普通 Go 比较或两次 `Compare`。
+</Callout>
+
+```go
+valid := value >= min && value <= max
+```
+
+`LengthBetween` 使用正常的 `min < max` 顺序，但相同边界也会 panic；精确长度请使用 `Length`。
+
+## `File` 和 `Dir` 只是瞬时观察
+
+`File` 与 `Dir` 调用 `os.Stat`。检查通过后，路径目标仍可能在你打开它之前被替换或删除。不要把它们当作授权边界；真正操作文件时仍要处理错误，并限制可访问的根目录。

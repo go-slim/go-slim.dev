@@ -1,0 +1,18 @@
+---
+title: Guide
+description: Start with one collected trace, then learn the model, instrumentation, Context, and runtime collection.
+---
+
+# Guide
+
+The guide follows a verifiable user path: first deliver one trace to a handler, then add correct span, event, and log boundaries to the application.
+
+1. [Getting started](/libraries/tracing/guide/getting-started): start a handler, emit a trace, and verify the batch.
+2. [Model](/libraries/tracing/guide/model): understand trace, span, event, and log responsibilities.
+3. [Instrumentation](/libraries/tracing/guide/instrumentation): observe HTTP, domain, and asynchronous boundaries.
+4. [Context and concurrency](/libraries/tracing/guide/context-and-concurrency): propagate the current span without crossing goroutine ownership.
+5. [Collection](/libraries/tracing/guide/collection): run the process-wide, bounded, lossy handler.
+
+<Callout type="info" title="Collect first, expand instrumentation second">
+  Records may be dropped before a runner exists, when the queue is full, or during shutdown. Verify handler lifecycle and capacity before adding instrumentation throughout the codebase.
+</Callout>

@@ -1,0 +1,39 @@
+title: misc
+description:
+  en-US: General-purpose helpers for common Go application concerns.
+  zh-Hans: 面向常见 Go 应用场景的通用辅助工具。
+icon: icons/wrench.svg
+llms:
+  repository: go-slim/misc
+  skillDescription: Misc is a Go package of general-purpose helpers for common application concerns.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    Digest: "对输入计算得到的固定长度摘要值。"
+    digest: "对输入计算得到的固定长度摘要值。"
+    checksum: "用于检测数据意外变化的校验值。"
+    hash: "把任意长度输入映射为固定长度值的散列函数或结果。"
+    bcrypt: "面向密码存储、内置成本参数和随机盐的自适应哈希算法。"
+    "client IP": "服务判定的原始客户端网络地址。"
+    "Client IP": "服务判定的原始客户端网络地址。"
+    "direct peer": "与当前服务直接建立连接的网络对端。"
+    alias: "与底层数据共享同一存储、不会复制内容的别名视图。"
+    Alias: "与底层数据共享同一存储、不会复制内容的别名视图。"
+    MD5: "已不适合安全用途的 128 位消息摘要算法。"
+    SHA-1: "已不适合抗碰撞安全用途的 160 位散列算法。"
+    "zero-copy": "复用既有内存而不复制数据的实现方式。"
+    WebSocket: "在单个连接上提供全双工通信的 WebSocket 协议。"
+    "constant time": "执行时间不随敏感输入内容变化的比较方式。"
+    "unsafe conversion": "借助 unsafe 绕过 Go 常规类型与内存安全规则的转换。"
+    "Unsafe conversion": "借助 unsafe 绕过 Go 常规类型与内存安全规则的转换。"
+    HMAC: "Hash-based Message Authentication Code，使用密钥验证消息完整性与来源的算法。"
+    hop: "请求在代理链中经过的一跳网络节点。"
+    edge: "最接近公网客户端、负责规范化和过滤流量的边缘代理。"
+    "content sniffing": "未完全信任声明类型时，根据正文特征推断内容类型的过程。"
+    extractor: "按可信规则从连接或转发头中提取候选值的组件。"
+    Extractor: "按可信规则从连接或转发头中提取候选值的组件。"
+    immutable: "创建后不再修改、可安全共享读取的不可变状态。"
+    "Floating-point NaN": "Not a Number，表示未定义或不可表示浮点结果的特殊值。"
+showInNavigation: true

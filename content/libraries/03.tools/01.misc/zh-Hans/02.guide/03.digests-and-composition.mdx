@@ -1,0 +1,73 @@
+---
+title: Digest 与函数组合
+description: 正确 hash 密码，并组合顺序执行、返回错误的操作。
+---
+
+# Digest 与函数组合
+
+## 密码 hash
+
+```go
+hash, err := misc.PasswordHash(password)
+if err != nil {
+	return err
+}
+
+if !misc.PasswordVerify(candidate, hash) {
+	return errors.New("invalid credentials")
+}
+```
+
+`PasswordHash` 使用 `bcrypt.DefaultCost`。它可能失败，包括输入超过 bcrypt 支持的密码长度。只存返回的 encoded hash，永远不要存明文。
+
+`PasswordVerify` 对不匹配和 malformed hash 都返回 false。诊断必须区分时直接使用 `bcrypt.CompareHashAndPassword`；authentication response 通常不应暴露这个区别。
+
+## Digest 不是密码算法
+
+```go
+md5Hex := misc.MD5("payload")       // 大写十六进制
+sha1Hex := misc.Sha1("payload")     // 小写十六进制
+sha256Hex := misc.Sha256("payload") // 小写十六进制
+```
+
+MD5 和 SHA-1 已不具备密码学安全性，只能用于现有非安全协议或 checksum format 要求的精确输出。SHA-256 是 digest，不是 password KDF，仍不能直接存密码。
+
+Authenticated message 应使用 HMAC 等合适 MAC，并用 constant time 比较 authentication value；这些 digest helper 本身不提供这两项能力。
+
+## 按顺序执行步骤
+
+```go
+err := misc.Call(
+	loadConfiguration,
+	openDatabase,
+	startServer,
+)
+```
+
+`Call` 按声明顺序执行，原样返回第一个非 nil error。没有函数时返回 nil；nil function 不会被跳过，执行到它时会 panic。
+
+每个步骤接收同一个值时使用 generic 形式：
+
+```go
+err := misc.CallG(input,
+	func(v Input) error { return validate(v) },
+	func(v Input) error { return persist(v) },
+)
+```
+
+这是顺序 fan-out，不是数据 transformation pipeline：每个函数收到原始值，不能把变换后的值交给下一步。
+
+## 构建可复用操作
+
+```go
+start := misc.Wrap(loadConfiguration, openDatabase, startServer)
+if err := start(); err != nil {
+	return err
+}
+
+validateAndSave := misc.WrapG(validate, persist)
+```
+
+`Wrap` 和 `WrapG` 捕获 function list，直到调用返回函数时才执行。并发复用时，所有 captured function 和 state 都必须并发安全。
+
+Composition 不执行 rollback。部分完成步骤拥有资源时，应配对显式 cleanup，或使用能记录成功 start 并按逆序 unwind 的 lifecycle abstraction。

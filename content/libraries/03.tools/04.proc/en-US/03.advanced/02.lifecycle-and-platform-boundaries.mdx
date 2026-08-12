@@ -1,0 +1,41 @@
+---
+title: Lifecycle and platform boundaries
+description: Understand proc startup snapshots, global state, test isolation, and platform differences.
+---
+
+# Lifecycle and platform boundaries
+
+## Process information is an import-time snapshot
+
+`Pid`, `Name`, and `WorkDir` are captured during package initialization. `Path` and `Pathf` join components onto that working directory:
+
+```go
+configPath := proc.Path("config", "app.yaml")
+```
+
+If the application later calls `os.Chdir`, `proc.WorkDir()` does not update. `Path` also does not check existence, authorization, or symlink boundaries.
+
+`Context()` currently returns a global `context.Background()` and is not canceled when an exit signal arrives. Create and propagate an application-owned cancellation context when workers need lifecycle notification.
+
+## Configure global state during startup
+
+The listener registry is internally locked, but `Logger` and the force-exit delay are package-level configuration. Set them during startup instead of changing them while signals are being processed.
+
+```go
+proc.Logger = io.Discard
+proc.SetTimeToForceQuit(10 * time.Second)
+```
+
+## Test terminating behavior in a subprocess
+
+The kill hook used by `Shutdown` is not exported outside the package. Application tests should not call `Shutdown` in the main test process. Run it in a helper subprocess, then assert the exit code, logs, and deadline from the parent test.
+
+## Platform constraints
+
+- Unix uses `syscall.Signal`, process groups, and signals sent to the current PID.
+- Windows adds no child-process attributes; `Shutdown` ignores the supplied signal and kills the process.
+- Common Unix signals do not have equivalent Windows behavior. Test each supported target separately.
+
+<Callout type="info" title="A more neutral alternative">
+  When `main` must explicitly own and cancel the lifecycle, standard-library `signal.NotifyContext` + `context` + `os/exec` is more verbose but gives clearer ownership, testing, and I/O semantics.
+</Callout>

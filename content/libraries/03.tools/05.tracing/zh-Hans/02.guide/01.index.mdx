@@ -1,0 +1,18 @@
+---
+title: 指南
+description: 从第一次采集开始，逐步理解模型、埋点、Context 与运行时采集。
+---
+
+# 指南
+
+指南按一条可验证的用户路径组织：先让一条 trace 进入 handler，再把正确的 span/event/log 边界接入应用。
+
+1. [快速开始](/zh-Hans/libraries/tracing/guide/getting-started)：启动 handler，产生 trace 并验证 batch。
+2. [模型](/zh-Hans/libraries/tracing/guide/model)：理解 trace、span、event、log 的职责。
+3. [埋点](/zh-Hans/libraries/tracing/guide/instrumentation)：在 HTTP、domain 和异步边界建立观测。
+4. [Context 与并发](/zh-Hans/libraries/tracing/guide/context-and-concurrency)：传播当前 span，避免跨 goroutine 所有权错误。
+5. [采集](/zh-Hans/libraries/tracing/guide/collection)：运行进程级、有界且允许丢失的 handler。
+
+<Callout type="info" title="先采集，再扩大埋点">
+  没有 runner、队列已满或关闭期间产生的记录可能被丢弃。先验证 handler 的启停与容量，能避免大量埋点上线后才发现没有消费者。
+</Callout>

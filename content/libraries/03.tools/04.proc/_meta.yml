@@ -1,0 +1,25 @@
+title: proc
+description:
+  en-US: Own process signals, shutdown, paths, and child-command execution.
+  zh-Hans: 管理进程信号、退出、路径与子命令执行。
+icon: icons/cpu.svg
+abbr:
+  zh-Hans:
+    "I/O": "Input/Output，进程与文件、管道或终端之间的输入输出。"
+    shell: "解释命令文本、展开变量并启动程序的命令行外壳。"
+    SIGHUP: "Unix hangup 信号，常用于通知守护进程重新加载配置。"
+    Unix: "以 POSIX 进程、信号和文件语义为基础的操作系统家族。"
+    Windows: "使用不同进程、信号和路径语义的 Microsoft 操作系统平台。"
+    CLI: "Command-Line Interface，命令行界面。"
+    PID: "Process Identifier，操作系统分配的进程标识符。"
+    "process group": "Unix 中可作为一个整体接收信号的一组相关进程。"
+    supervisor: "负责启动、监控并按策略停止或重启子进程的监督器。"
+    "child command": "由当前 Go 进程启动并管理的外部命令。"
+    shutdown: "停止接收新工作并清理资源后退出的关闭过程。"
+    listener: "订阅进程信号并在触发时执行 callback 的监听器。"
+    interrupt: "请求进程停止当前工作的中断信号或动作。"
+    signal: "由操作系统发送、用于通知进程停止或发生事件的信号。"
+    symlink: "指向另一个文件系统路径的符号链接。"
+    timeout: "允许操作持续的最长时间。"
+    "package init": "Go 在 main 之前按依赖顺序执行包级初始化的阶段。"
+showInNavigation: true

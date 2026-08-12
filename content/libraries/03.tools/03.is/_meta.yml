@@ -1,0 +1,31 @@
+title: is
+description:
+  en-US: Compose small, dependency-free predicates for input checks and detection.
+  zh-Hans: 用小型、零依赖谓词组合输入检查与格式检测。
+icon: icons/search.svg
+llms:
+  repository: go-slim/is
+  skillDescription: Is is a Go package of dependency-free predicates for input validation and detection.
+  files:
+    - llms.txt
+abbr:
+  zh-Hans:
+    ASCII: "American Standard Code for Information Interchange，基础字符编码标准。"
+    JWT: "JSON Web Token，一种紧凑的声明传递格式；格式有效不代表签名可信。"
+    UUID: "Universally Unique Identifier，通用唯一标识符。"
+    ULID: "Universally Unique Lexicographically Sortable Identifier，可按字典序排序的唯一标识符。"
+    SSRF: "Server-Side Request Forgery，诱导服务端访问非预期网络资源的攻击。"
+    MAC: "Media Access Control address，网络接口的链路层地址。"
+    IPv4: "Internet Protocol version 4 地址。"
+    IPv6: "Internet Protocol version 6 地址。"
+    IANA: "Internet Assigned Numbers Authority，互联网号码分配机构。"
+    "zero value": "Go 类型未显式初始化时得到的默认值。"
+    "parser/verifier": "负责完整解析语法或验证真实性与信任边界的组件。"
+    email: "遵循邮箱地址语法的文本；语法有效不代表地址真实可达。"
+    claims: "JWT 等令牌中携带的声明性键值数据。"
+    IP: "Internet Protocol 地址。"
+    presence: "字段是否被提供；与字段值是否为零值是不同语义。"
+    "RGB/HSL": "两种常见颜色表示模型：红绿蓝与色相饱和度亮度。"
+    validation: "检查输入是否满足约定格式或业务约束的过程。"
+    scheme: "URL 中表示访问协议的部分，例如 http 或 https。"
+showInNavigation: false

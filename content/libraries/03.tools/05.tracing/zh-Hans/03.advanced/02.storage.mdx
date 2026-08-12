@@ -1,0 +1,83 @@
+---
+title: 本地存储
+description: 使用支持恢复、索引查询、retention 与容量清理的分段 engine 持久化 batch。
+---
+
+# 本地存储
+
+`go-slim.dev/tracing/storage` 实现 `tracing.Handler`。它把带 checksum 的 append-only frame 写入 segment，启动时恢复完整 frame，构建内存 index，并提供并发 query API。
+
+同一时间只能有一个 engine 持有目录锁。
+
+## Open 与 run
+
+```go
+engine, err := storage.Open(
+	ctx,
+	"./var/tracing",
+	storage.WithCapacity(512<<20, 0.90, 0.75),
+	storage.WithSegmentBytes(64<<20),
+	storage.WithRetention(7*24*time.Hour, 180*24*time.Hour),
+	storage.WithCleanup(time.Hour, 5000),
+)
+if err != nil {
+	return err
+}
+```
+
+`Engine.Run` 运行全局 tracing handler 与周期 cleanup。需要确定性启动时使用 `RunWithReady`：
+
+```go
+runCtx, cancel := context.WithCancel(ctx)
+ready := make(chan struct{})
+done := make(chan error, 1)
+go func() { done <- engine.RunWithReady(runCtx, ready) }()
+
+select {
+case <-ready:
+	// 可以启动带埋点的业务组件。
+case err := <-done:
+	_ = engine.Close()
+	return err
+}
+```
+
+不要同时再启动第二个 root `RunHandler`，采集是 process-wide 的。
+
+## 默认值
+
+| 设置 | 默认值 |
+| --- | ---: |
+| Segment target | 64 MiB |
+| Physical capacity | 512 MiB |
+| High / low watermark | 90% / 75% |
+| Raw trace retention | 7 天 |
+| Health projection retention | 180 天 |
+| Cleanup interval | 1 小时 |
+| Query page | 100，最大 500 |
+
+Level age 允许较低级 log 更早进入可清理状态：debug 3 天、info 4 天、warn 5 天、error 6 天，critical 跟随 raw retention。`WithLevelAges` 必须非递减且不超过 raw retention。
+
+## Raw record 与 health projection
+
+带非空 `Service` 的 log 会形成 service health view 与每日 level count。Health sample 与 raw trace availability 分开保留，因此完整 trace 被 prune 后 sample 仍可能存在，`ParentsAvailable` 表示 parent 是否还可查询。
+
+Service health 是业务 log 的本地 projection。除非应用一致定义并产生相应语义，否则它不是 uptime monitor 或 SLA 测量。
+
+## Durability 与 sync
+
+默认 write 不会在每次 `Store` 返回前 fsync active segment。`WithSyncWrites(true)` 会增强边界，但牺牲吞吐。`Engine.Sync(ctx)` 可建立显式 checkpoint。
+
+Checksum 与 recovery 保护 storage structure，但 filesystem loss、disk exhaustion 和 host loss 仍属于部署问题。目录应位于合适 persistent storage，并演练恢复。
+
+## Cleanup 与 compaction
+
+Retention 使记录具备逻辑删除资格。容量到 high watermark 后开始清理，并向 low watermark compact。`Cleanup`/`CleanupAt` 执行有界 cleanup，`Compact` 重写 physical storage。`Stats` 报告 physical/live/dead bytes 与 indexed record count。
+
+Cleanup 可能需要多个 batch，应检查 `CleanupResult.HasMore`。应用未协调时，不要让临时 cleanup/close 与 lifecycle transition 并发。
+
+## Observer
+
+`Observe` 接收 committed revision 与 change。Callback 在 `Store`、`Cleanup` 或 `Close` 调用方中执行，必须快速，不能做慢 I/O 或 re-entrant engine work。Panic 会恢复并通过 `slog` 报告。
+
+Observer 只适合轻量 invalidation signal；authoritative view 应重新 query engine。
