@@ -1,0 +1,16 @@
+---
+import BaseLayout from '#components/layouts/base.astro'
+import LibrariesPage from '#components/views/libraries-page.astro'
+import { useTranslations } from '#i18n/utils.ts'
+
+const locale = 'en-US' as const
+const t = useTranslations(locale)
+---
+
+<BaseLayout
+  locale={locale}
+  title={t('meta.libraries.title')}
+  description={t('meta.libraries.description')}
+>
+  <LibrariesPage locale={locale} />
+</BaseLayout>
