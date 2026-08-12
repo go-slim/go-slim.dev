@@ -1,0 +1,52 @@
+---
+import { render } from 'astro:content'
+import Callout from '#components/callout.astro'
+import { proseComponents } from '#components/prose/index.ts'
+import type { BlogDocument } from '#lib/content.ts'
+import { localePrefix } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  document: BlogDocument
+}
+
+const { document } = Astro.props
+const { Content } = await render(document.entry)
+const t = useTranslations(document.locale)
+const dateFormatter = new Intl.DateTimeFormat(document.locale, {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  timeZone: 'UTC',
+})
+---
+
+<main class="mx-auto max-w-reading px-4 py-12 @[48rem]/app:px-6 @[64rem]/app:py-20">
+  <article>
+    <header class="mb-12 border-b border-border pb-8">
+      <a
+        href={`${localePrefix(document.locale)}/blog`}
+        class="text-sm font-semibold text-primary hover:underline"
+      >
+        {t('header.nav.blog')}
+      </a>
+      <h1 class="mt-4 text-document-title font-semibold tracking-display">
+        {document.title}
+      </h1>
+      {document.description && (
+        <p class="mt-5 text-lg leading-8 text-muted-foreground">
+          {document.description}
+        </p>
+      )}
+      <div class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+        <span>{document.author}</span>
+        <time datetime={document.publishedAt}>
+          {dateFormatter.format(new Date(`${document.publishedAt}T00:00:00Z`))}
+        </time>
+      </div>
+    </header>
+    <div class="leading-8">
+      <Content components={{ ...proseComponents, Callout }} />
+    </div>
+  </article>
+</main>

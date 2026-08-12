@@ -1,0 +1,79 @@
+---
+import { Icon } from 'astro-icon/components'
+import { getBlogPosts } from '#lib/content.ts'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const posts = await getBlogPosts(locale)
+const t = useTranslations(locale)
+const dateFormatter = new Intl.DateTimeFormat(locale, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+})
+---
+
+<main class="mx-auto max-w-page px-4 py-16 @[48rem]/app:px-6 @[64rem]/app:px-8 @[64rem]/app:py-24">
+  <header class="max-w-3xl">
+    <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+      {t('blog.eyebrow')}
+    </p>
+    <h1 class="mt-4 text-page-title font-semibold tracking-display">
+      {t('blog.title')}
+    </h1>
+    <p class="mt-6 text-lg leading-8 text-muted-foreground">
+      {t('blog.description')}
+    </p>
+  </header>
+
+  <div class="mt-14 border-t border-border">
+    {posts.length > 0 ? (
+      <ol class="divide-y divide-border">
+        {posts.map((post) => (
+          <li>
+            <a
+              href={post.href}
+              class="group grid gap-4 py-8 @[48rem]/app:grid-cols-[10rem_minmax(0,1fr)_auto] @[48rem]/app:items-start"
+            >
+              <time class="text-sm text-muted-foreground" datetime={post.publishedAt}>
+                {dateFormatter.format(new Date(`${post.publishedAt}T00:00:00Z`))}
+              </time>
+              <span>
+                <strong class="block text-2xl group-hover:text-primary">
+                  {post.title}
+                </strong>
+                <span class="mt-2 block leading-7 text-muted-foreground">
+                  {post.description}
+                </span>
+                {post.tags.length > 0 && (
+                  <span class="mt-4 flex flex-wrap gap-2">
+                    {post.tags.map((tag) => (
+                      <span class="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </span>
+              <Icon
+                name="tabler:arrow-up-right"
+                class="hidden size-5 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary @[48rem]/app:block"
+                aria-hidden="true"
+              />
+            </a>
+          </li>
+        ))}
+      </ol>
+    ) : (
+      <p class="py-10 text-muted-foreground">
+        {t('blog.noPosts')}
+      </p>
+    )}
+  </div>
+</main>

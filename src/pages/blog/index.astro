@@ -1,0 +1,12 @@
+---
+import BaseLayout from '#components/layouts/base.astro'
+import BlogIndex from '#components/views/blog-index.astro'
+import { useTranslations } from '#i18n/utils.ts'
+
+const locale = 'en-US' as const
+const t = useTranslations(locale)
+---
+
+<BaseLayout locale={locale} title={t('meta.blog.title')}>
+  <BlogIndex locale={locale} />
+</BaseLayout>

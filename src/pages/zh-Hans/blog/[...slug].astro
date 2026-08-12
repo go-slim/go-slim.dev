@@ -1,0 +1,28 @@
+---
+import BaseLayout from '#components/layouts/base.astro'
+import BlogPost from '#components/views/blog-post.astro'
+import { getBlogDocuments, type BlogDocument } from '#lib/content.ts'
+
+export async function getStaticPaths() {
+  return (await getBlogDocuments())
+    .filter((document) => document.locale === 'zh-Hans' && !document.draft)
+    .map((document) => ({
+      params: { slug: document.slug },
+      props: { document },
+    }))
+}
+
+type Props = {
+  document: BlogDocument
+}
+
+const { document } = Astro.props
+---
+
+<BaseLayout
+  locale="zh-Hans"
+  title={`${document.title} — go-slim`}
+  description={document.description}
+>
+  <BlogPost document={document} />
+</BaseLayout>
