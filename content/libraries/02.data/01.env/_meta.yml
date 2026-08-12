@@ -1,0 +1,22 @@
+title: env
+description:
+  en-US: Load, scope, and read application configuration from environment variables.
+  zh-Hans: 从环境变量加载、分组并读取应用配置。
+icon: icons/variable.svg
+llms:
+  repository: go-slim/env
+  skillDescription: Env is a Go package for loading application configuration from environment variables.
+  files:
+    - llms.txt
+abbr:
+  zh-Hans:
+    secret: "密码、令牌或私钥等不应记录或公开的敏感配置。"
+    Secret: "密码、令牌或私钥等不应记录或公开的敏感配置。"
+    "typed getter": "读取字符串配置并转换为目标 Go 类型的取值函数。"
+    "Typed getter": "读取字符串配置并转换为目标 Go 类型的取值函数。"
+    provider: "向配置集合提供键值数据的来源实现。"
+    bootstrap: "应用正式启动前加载并验证基础配置的引导阶段。"
+    reload: "进程运行期间重新读取并发布配置的过程。"
+    runtime: "程序已经启动并正在执行的运行期环境。"
+    getter: "按键读取配置并可选转换为目标类型的取值函数。"
+showInNavigation: true

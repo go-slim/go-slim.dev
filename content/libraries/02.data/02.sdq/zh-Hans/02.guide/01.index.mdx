@@ -1,0 +1,16 @@
+---
+title: 指南
+description: 构造并启动队列，然后选择底层 Job API 或 typed Task API。
+---
+
+# 指南
+
+先建立一个可预期启停的 queue，再开始发布和消费任务。
+
+1. [配置与生命周期](/zh-Hans/libraries/sdq/guide/setup-and-lifecycle)：选择 storage/ticker，处理 recovery 与 shutdown。
+2. [队列任务](/zh-Hans/libraries/sdq/guide/jobs)：需要精确控制 reserve、delete、release、bury 时使用。
+3. [Task API](/zh-Hans/libraries/sdq/guide/task-api)：需要 JSON payload、typed handler 和 worker 并发时使用。
+
+<Callout type="warning" title="先设计幂等，再开 worker">
+  Reserved job 可因 TTR 超时或不确定的进程失败再次可见。这是用容错换取可恢复性的设计，也要求 handler 支持重复执行。
+</Callout>

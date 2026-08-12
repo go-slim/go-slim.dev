@@ -1,0 +1,94 @@
+---
+title: Load application configuration
+description: Build and validate startup configuration from the process environment and .env files.
+---
+
+# Load application configuration
+
+This page has one outcome: load configuration during startup, validate required values, and freeze the result before concurrent work begins.
+
+## Install
+
+```sh
+go get go-slim.dev/env
+```
+
+The current module requires Go 1.24 or later.
+
+## Prepare configuration files
+
+A development directory can contain:
+
+```dotenv
+# .env
+APP_ENV=dev
+PORT=8080
+REQUEST_TIMEOUT=5s
+
+# .env.dev.local; keep it out of version control
+DATABASE_URL=postgres://localhost/app
+```
+
+Load it at the beginning of `main`:
+
+```go
+if err := env.Init(); err != nil {
+	log.Fatalf("load configuration: %v", err)
+}
+
+databaseURL, ok := env.Lookup("DATABASE_URL")
+if !ok {
+	log.Fatal("DATABASE_URL must be non-empty")
+}
+
+port := env.Int("PORT", 8080)
+env.Lock()
+```
+
+The intended result is one configuration snapshot observed by every later component, with runtime reloads prevented.
+
+## Load from a chosen directory
+
+```go
+if err := env.InitWithDir("./config"); err != nil {
+	return err
+}
+
+certificate := env.Path("certs", "server.pem")
+```
+
+`Path` resolves against the most recent successful initialization directory. If initialization fails, the cache and root are cleared so the application cannot continue with a partial configuration.
+
+## Load an additional file
+
+```go
+if err := env.Load("./secrets/runtime.env"); err != nil {
+	return err
+}
+env.Lock()
+```
+
+Call `Load` only during initialization. Unlike conventional files discovered by `Init`, an explicitly loaded missing file returns an error.
+
+## Required and optional values
+
+```go
+// Required: distinguish missing or empty input.
+raw, ok := env.Lookup("WORKER_COUNT")
+if !ok {
+	return errors.New("WORKER_COUNT is required")
+}
+workers, err := strconv.Atoi(raw)
+if err != nil || workers <= 0 {
+	return fmt.Errorf("invalid WORKER_COUNT %q", raw)
+}
+
+// Optional: conversion failure also uses the fallback.
+debug := env.Bool("DEBUG", false)
+```
+
+<Callout type="warning" title="Typed getters do not report conversion errors">
+  `Int("PORT", 8080)` cannot distinguish an unset PORT from `PORT=abc`. For critical configuration, call `Lookup`, then parse and validate explicitly with the standard library.
+</Callout>
+
+Next: [Read typed and scoped values](/libraries/env/guide/typed-and-scoped-values).

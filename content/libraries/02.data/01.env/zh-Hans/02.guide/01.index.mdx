@@ -1,0 +1,13 @@
+---
+title: 指南
+description: 加载应用配置，并以强类型或分组值交给运行时代码。
+---
+
+# 指南
+
+按启动顺序构建配置：先加载全部来源，再校验服务必需的值，最后向运行时代码提供强类型设置。
+
+1. [加载应用配置](/zh-Hans/libraries/env/guide/load-configuration)：文件发现、环境合并和最小启动流程。
+2. [读取类型与分组配置](/zh-Hans/libraries/env/guide/typed-and-scoped-values)：选择 getter、结构体或 `Signed` 分组。
+
+在生产环境依赖优先级、锁定或并发读取前，继续阅读[进阶](/zh-Hans/libraries/env/advanced)。

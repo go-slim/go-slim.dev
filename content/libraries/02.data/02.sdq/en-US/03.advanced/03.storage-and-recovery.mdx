@@ -1,0 +1,66 @@
+---
+title: Storage and recovery
+description: Choose a durability model and understand startup recovery and custom Storage contracts.
+---
+
+# Storage and recovery
+
+sdq keeps lightweight `JobMeta` in scheduler memory and stores bodies separately. Reserved `Job` values load bodies on demand. Storage choice controls persistence, not scheduling semantics.
+
+## Memory storage
+
+```go
+config.Storage = memory.New()
+```
+
+Memory storage is concurrency-safe and useful for tests or work that may disappear with the process. It is not a durable fallback merely because the application shuts down gracefully.
+
+## SQLite storage
+
+```go
+store, err := sqlite.New(
+	"./var/jobs.db",
+	sqlite.WithMaxBatchSize(500),
+	sqlite.WithMaxBatchBytes(8<<20),
+)
+if err != nil {
+	return err
+}
+config.Storage = store
+```
+
+The implementation uses `github.com/mattn/go-sqlite3`, enables WAL mode, and uses `synchronous=NORMAL`. `SaveJob` may batch concurrent requests internally but waits for transaction outcome before returning. A successful `Put` therefore confirms the new body and metadata are readable.
+
+Metadata transitions use a bounded asynchronous update buffer. A nil `UpdateJobMeta` result means the update was accepted, not necessarily durable on disk. `Close` drains accepted updates during orderly shutdown; an abrupt process exit can lose the most recent transition. The concrete SQLite store exposes `UpdateJobMetaSync` when immediate transition durability is required outside the queue abstraction.
+
+## Startup recovery
+
+At start, the queue snapshots storage's maximum ID and scans metadata in ascending cursor pages. It does not load bodies. Recovered delayed and reserved jobs are normalized according to their timestamps; new jobs above the snapshot are already registered normally and are not recovered twice.
+
+Recovery is asynchronous. Use `WaitForRecovery` when readiness requires complete inventory, and surface its errors in health checks or deployment control.
+
+## Custom Storage contract
+
+A custom implementation must satisfy stronger guarantees than a simple CRUD adapter:
+
+- `SaveJob` atomically makes metadata and immutable body readable before returning nil.
+- `UpdateJobMeta` may buffer only within a bound; `Close` must drain accepted updates.
+- cursor scans return strictly ascending IDs greater than the supplied cursor.
+- `HasMore` requires an advancing `NextCursor` equal to the last returned ID.
+- `CountJobs` ignores pagination fields and applies topic/state filters.
+- `GetMaxJobID` returns zero for an empty store.
+- `Close` need not race active operations; the application stops callers first.
+
+Return `ErrNotFound`, `ErrJobExists`, and `ErrStorageClosed` where their meanings apply so callers can classify failures.
+
+## Deployment durability
+
+SQLite durability still depends on:
+
+- keeping the database and WAL on persistent storage;
+- a single-writer deployment model compatible with the file;
+- filesystem permissions, free space, backup, and restore tests;
+- graceful shutdown long enough to drain metadata updates;
+- understanding the loss window accepted by `synchronous=NORMAL` and the platform.
+
+Do not place a SQLite queue on an ephemeral container filesystem when jobs must survive replacement.

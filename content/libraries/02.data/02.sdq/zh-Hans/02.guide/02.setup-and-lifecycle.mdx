@@ -1,0 +1,91 @@
+---
+title: 配置与生命周期
+description: 提供必需的 storage 和 ticker，安全启动与停止 queue。
+---
+
+# 配置与生命周期
+
+Queue 必须同时配置 `Storage` 和 `Ticker`。`DefaultConfig` 提供限制默认值，但不会提供这两个依赖：
+
+```go
+config := sdq.DefaultConfig()
+config.Storage = memory.New()
+config.Ticker = dynsleep.New(
+	50*time.Millisecond, // 最小调度间隔
+	time.Second,         // 空闲检查间隔
+)
+
+q, err := sdq.New(config)
+if err != nil {
+	return err
+}
+if err := q.Start(); err != nil {
+	_ = q.Stop()
+	return err
+}
+defer func() { _ = q.Stop() }()
+```
+
+缺少任何一个依赖，`New` 都会返回包装 `ErrInvalidConfig` 的 error。`Ticker`/`Storage` 实例优先于对应 factory function。
+
+## 默认值与限制
+
+```go
+config := sdq.DefaultConfig()
+config.DefaultTTR = 90 * time.Second
+config.MaxJobSize = 64 << 10
+config.MaxTouches = 10
+config.MaxTouchDuration = 10 * time.Minute
+config.MinTouchInterval = 5 * time.Second
+config.MaxTopics = 200
+config.MaxJobsPerTopic = 100_000
+```
+
+零值的含义按字段而不同。例如 `New` 会给零 `DefaultTTR` 和 `MaxJobSize` 填默认值，而 topic/job limit 为零表示无限制。应从 `DefaultConfig` 开始，有意识地覆盖字段。
+
+## 选择 ticker
+
+```go
+config.Ticker = dynsleep.New(20*time.Millisecond, time.Second)
+```
+
+`dynsleep` 根据最近 deadline 重新计算睡眠时间，适合稀疏或不规则的 delayed work。`timewheel` 用固定 tick 精度和 wheel size 换取大量 deadline 的高效调度：
+
+```go
+config.Ticker = timewheel.New(100*time.Millisecond, 3600)
+```
+
+Queue 允许在启动前 `Put`，所以可能在 ticker `Start` 前 register/wakeup topic。自定义 ticker 必须支持这个生命周期。
+
+## Start 前 Put
+
+`New` 会读取 storage 最大 ID，并返回已经可以接受 `Put` 的 queue。启动前提交会同步保存并登记到内存；`Start` 再初始化调度和 reserve waiter。
+
+不要把 `Reserve` 作为启动前 workflow。Consumer 工作前必须启动 queue。
+
+## 异步恢复
+
+`Start` 不等待持久化 job 全部加载。它启动 runtime、获取最大 ID 快照，并在后台分页恢复 metadata。恢复时仍可发布和消费新 job，但统计可能暂时只包含已恢复部分。
+
+应用 readiness 要求完整视图时显式等待：
+
+```go
+if err := q.Start(); err != nil {
+	return err
+}
+if err := q.WaitForRecovery(30 * time.Second); err != nil {
+	return fmt.Errorf("recover queue: %w", err)
+}
+```
+
+超时返回 `ErrTimeout`，但不会取消恢复。成功 start 前调用会返回 `ErrQueueNotStarted`。`RecoveryCallback` 可以上报进度，但它运行在恢复 goroutine 中，必须快速返回，也不能重入 queue lifecycle method。
+
+## Start 与 Stop 规则
+
+- `Start` 幂等，并返回第一次启动结果；后续 option 被忽略。
+- `Stop` 幂等，会关闭 storage，并永久停止这个 queue 实例。
+- 在 `Start` 前调用 `Stop` 仍会关闭 queue 与 storage。
+- Lifecycle operation 不应与 `Put`、另一次 start 或 stop 并发执行。
+- 先停 producer 和 worker，再停 queue，避免 storage close 与运行操作竞态。
+
+关闭后需要创建新 queue；已停止实例不能 restart。

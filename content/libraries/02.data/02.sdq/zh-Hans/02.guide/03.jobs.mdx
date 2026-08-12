@@ -1,0 +1,110 @@
+---
+title: 队列任务
+description: 使用底层 API 发布、获取、检查和转换 job。
+---
+
+# 队列任务
+
+`Put` 会明确给出调度契约：
+
+```go
+id, err := q.Put(
+	"email",
+	[]byte(`{"user_id":42}`),
+	10,             // priority：数字越小越先执行
+	5*time.Minute,  // delay
+	60*time.Second, // TTR；零使用 DefaultTTR
+)
+```
+
+Topic name 会被校验，body 不能超过 `MaxJobSize`，且 job 会先保存再进入内存调度。Storage failure 表示任务没有被接受。
+
+## Reserve 工作
+
+```go
+job, err := q.Reserve([]string{"email", "webhook"}, 5*time.Second)
+switch {
+case errors.Is(err, sdq.ErrTimeout):
+	// Deadline 前没有 ready job。
+case err != nil:
+	return err
+default:
+	// 处理 job。
+}
+```
+
+Topic list 必须非空且全部合法。Timeout 为零表示立即尝试。每个 topic 的 waiting worker 数量有界，过载可能返回 `ErrTooManyWaiters`。
+
+Reserve 会把 job 变为 `StateReserved` 并启动 TTR lease。`Job.Meta` 是独立 metadata snapshot，但 queue 内状态在返回后仍可能继续变化。
+
+## 加载 body
+
+Reserved body 从 storage 延迟加载：
+
+```go
+body, err := job.GetBody()
+if err != nil {
+	_ = job.Bury(job.Meta.Priority)
+	return err
+}
+```
+
+`GetBody` 并发安全并缓存结果。`Body()` 会忽略加载错误，失败时返回 nil；生产 handler 通常应优先使用 `GetBody`。
+
+## 完成或重新调度
+
+```go
+if err := process(body); err == nil {
+	return job.Delete()
+}
+
+return job.Release(
+	job.Meta.Priority,
+	30*time.Second,
+)
+```
+
+| 操作 | 合法来源状态 | 结果 |
+| --- | --- | --- |
+| `Delete` | Reserved | 永久删除 metadata 和 body |
+| `Release(priority, delay)` | Reserved | 用新 priority 返回 ready 或 delayed |
+| `Bury(priority)` | Reserved | 移到 buried，等待人工策略 |
+| `Touch()` | Reserved | 用原 TTR 重置 deadline |
+| `Touch(duration)` | Reserved | 在配置限制内延长 lease |
+| `Kick()` | Buried | 把单个 job 送回 ready |
+
+批量处理 buried job 使用 queue-level `Kick(topic, bound)`。`ForceDelete` 能删除任意状态，只应用于管理清理，不是正常 worker 成功路径。
+
+## 不 reserve 的检查
+
+`Peek`、`PeekReady`、`PeekDelayed` 和 `PeekBuried` 可以查看但不会取得 lease。Peek 不是任务所有权，不能据此处理 job；它们只适合诊断，执行工作前必须 reserve。
+
+## 感知错误的 worker loop
+
+```go
+for {
+	job, err := q.Reserve(topics, time.Second)
+	if errors.Is(err, sdq.ErrTimeout) {
+		continue
+	}
+	if err != nil {
+		return err
+	}
+
+	body, err := job.GetBody()
+	if err != nil {
+		_ = job.Bury(job.Meta.Priority)
+		continue
+	}
+
+	if err := process(body); err != nil {
+		_ = job.Release(job.Meta.Priority, retryDelay(err))
+		continue
+	}
+	if err := job.Delete(); err != nil {
+		return err
+	}
+}
+```
+
+真实 worker 不应无声忽略 transition error。Delete 失败会留下不确定所有权并可能造成后续重复处理；应记录 job ID 和错误以便核对。

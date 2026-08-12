@@ -1,0 +1,83 @@
+---
+title: Task API
+description: Register JSON task schemas, publish options, and run bounded worker concurrency.
+---
+
+# Task API
+
+`go-slim.dev/sdq/x/task` maps stable task names to JSON payload types and handlers. Registration validates the handler signature and panics on duplicate names or invalid functions, so define tasks during program initialization.
+
+```go
+type EmailPayload struct {
+	UserID  uint64 `json:"user_id"`
+	Template string `json:"template"`
+}
+
+var sendEmail = task.Register("send-email", &task.Config{
+	Handler: func(ctx context.Context, data EmailPayload) error {
+		return mailer.SendTemplate(ctx, data.UserID, data.Template)
+	},
+	Priority:   10,
+	TTR:        60 * time.Second,
+	MaxRetries: 4,
+})
+```
+
+Handlers may be `func(context.Context, T) error` or `func(T) error`. Payload JSON is decoded into `T`. Panics are recovered and treated as handler errors.
+
+## Bind a queue and publish
+
+`NewWorker` binds all currently registered tasks to its queue. A producer that does not construct a worker must call `SetQueue` explicitly:
+
+```go
+sendEmail.SetQueue(q)
+
+err := sendEmail.Publish(ctx, EmailPayload{
+	UserID:  42,
+	Template: "welcome",
+},
+	task.Delay(10*time.Second),
+	task.Priority(5),
+	task.TTR(90*time.Second),
+)
+```
+
+`DelayUntil` schedules for a wall-clock time; a past time becomes no delay. Publish options override the registration defaults for one job.
+
+Task names become queue topics and persisted protocol identifiers. Keep them stable across deployments. For incompatible payload changes, use a new name such as `send-email-v2` or keep the handler backward compatible.
+
+## Run workers
+
+```go
+worker := task.NewWorkerWithTasks(q, "send-email", "sync-invoice")
+if err := worker.Start(4); err != nil {
+	return err
+}
+defer worker.Stop()
+```
+
+The number controls worker goroutines; non-positive values become one. Each worker reserves for up to five seconds. `Stop` cancels handler contexts and waits for every worker, but a handler that ignores cancellation can keep it blocked indefinitely. Handler deadlines are slightly shorter than job TTR.
+
+Create and start a worker once. A stopped worker's context is canceled and it is not restartable.
+
+## Retry behavior
+
+On handler error, the built-in worker compares the job's release count with `MaxRetries`:
+
+- retries use the same priority and exponential delays of 5s, 10s, 20s, and so on;
+- exhausted jobs are buried;
+- `MaxRetries: 0` buries on the first failure;
+- missing registered handlers bury the job;
+- success deletes the job.
+
+`FallbackHandler` exists in configuration but is not invoked by the current worker implementation; do not rely on it for production failure handling.
+
+## Payload and dependency design
+
+- Store identifiers and immutable command data, not large blobs or live credentials.
+- Inject clients and repositories through handler closures, not context values.
+- Treat decoded payloads as untrusted persisted input and validate them before side effects.
+- Include an idempotency key when the side effect cannot naturally tolerate repeats.
+- Keep old handler/schema code available until every persisted old job is drained or migrated.
+
+The context passed to `Publish` is currently not propagated into queue storage, because `Queue.Put` owns its storage context. Check cancellation before publishing when the caller requires it.

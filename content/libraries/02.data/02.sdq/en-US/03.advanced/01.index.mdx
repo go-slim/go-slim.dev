@@ -1,0 +1,16 @@
+---
+title: Advanced
+description: Design duplicate execution, failure recovery, persistence, and production operations.
+---
+
+# Advanced
+
+This section answers what happens after application restarts, worker failures, and queue growth.
+
+- [TTR and failure handling](/libraries/sdq/advanced/ttr-and-failures): leases, touch, retries, poison jobs, and idempotency.
+- [Storage and recovery](/libraries/sdq/advanced/storage-and-recovery): memory/SQLite guarantees, recovery, and custom Storage contracts.
+- [Operations](/libraries/sdq/advanced/operations): Inspector, metrics, web UI security, capacity, and shutdown order.
+
+<Callout type="info" title="Durable storage is not business exactly-once">
+  SQLite can preserve a job, but it cannot automatically make a business side effect and job deletion one transaction. Cross-system consistency still needs idempotency keys, outbox/inbox, or domain transaction design.
+</Callout>

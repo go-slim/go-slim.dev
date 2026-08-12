@@ -1,0 +1,78 @@
+---
+title: Operations
+description: Inspect queue state, export metrics, secure the web UI, and plan capacity and shutdown.
+---
+
+# Operations
+
+Operate the queue from explicit snapshots and alerts rather than inferring health only from worker logs.
+
+## Inspector
+
+```go
+inspector := sdq.NewInspector(q)
+stats := inspector.Stats()
+
+log.Info("queue",
+	"ready", stats.ReadyJobs,
+	"delayed", stats.DelayedJobs,
+	"reserved", stats.ReservedJobs,
+	"buried", stats.BuriedJobs,
+	"timeouts", stats.Timeouts,
+)
+```
+
+`Inspector` also exposes sorted topic statistics, waiting workers, storage/ticker stats, job metadata/body lookup, cursor-aware lists, kick, and force delete. Use paginated variants when topic or job counts can grow.
+
+Useful alerts include sustained ready depth, oldest-ready age from application metadata, buried growth, repeated timeouts, storage failures, waiting-worker saturation, and a recovery error that never reaches complete.
+
+## Prometheus
+
+```go
+prometheus.MustRegister(metrics.NewCollector(q))
+```
+
+The collector exports job gauges by state, topic and waiter gauges, and cumulative operation counters. Topic names become label values for waiting workers, so constrain topic cardinality. Avoid creating topics from user IDs or request-specific values.
+
+## Administrative web UI
+
+```go
+query := webui.NewQuery(q)
+admin := webui.NewHandlerWithBasePath(query, "/admin/queue/")
+
+mux.Handle("/admin/queue/", http.StripPrefix("/admin/queue", admin))
+```
+
+The handler can read raw job bodies and execute kick/delete operations. It provides no authentication, authorization, CSRF protection, TLS, audit log, or rate limiting. Mount it only behind trusted administrative controls. Cookie-authenticated deployments need CSRF protection for mutation endpoints.
+
+The built-in frontend loads pinned browser modules from a public CDN by default. Self-host them when offline operation, CSP, or supply-chain policy requires it.
+
+## Capacity controls
+
+- `MaxJobSize` bounds each stored payload; store large objects elsewhere.
+- `MaxTopics` prevents unbounded scheduling partitions.
+- `MaxJobsPerTopic` bounds per-topic inventory.
+- Reserve waiters are bounded per topic; treat `ErrTooManyWaiters` as overload.
+- `EnableTopicCleanup` with `TopicCleanupInterval` removes empty topic structures.
+- Ticker resolution, SQLite batch settings, worker concurrency, and dependency capacity must be tuned together.
+
+Lower priority numbers win, so a continuous high-priority stream can starve larger values. Use separate topics or an application fairness policy when starvation is unacceptable.
+
+## Graceful shutdown
+
+Use this order:
+
+1. Stop accepting producer/API requests.
+2. Stop task or custom workers and wait for handlers to return.
+3. Stop metrics/UI mutation traffic if it can operate the queue.
+4. Call `Queue.Stop` to cancel recovery/tickers and close storage.
+
+Worker cancellation does not undo an external side effect. Handlers should observe context, finish or abandon work deliberately, and rely on idempotency when TTR later redelivers it.
+
+## Operational runbook
+
+- Inspect a buried job without processing it.
+- Validate/fix its payload or the underlying dependency.
+- Kick a bounded set and watch failure/timeout counters.
+- Force-delete only with an audit trail and an understood business consequence.
+- Exercise SQLite backup/restore and restart recovery before depending on it in production.

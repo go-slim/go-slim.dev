@@ -1,0 +1,10 @@
+---
+title: 进阶
+description: 定义配置优先级、锁定和并发边界。
+---
+
+# 进阶
+
+goroutine 和 server 启动后，配置就成为运行契约。在广泛共享配置前，要让优先级可预测，并停止运行时修改。
+
+- [生命周期、优先级与并发](/zh-Hans/libraries/env/advanced/lifecycle-and-precedence)：来源顺序、`Lock`、进程级状态和测试隔离。

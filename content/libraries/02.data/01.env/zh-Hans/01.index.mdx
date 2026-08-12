@@ -1,0 +1,71 @@
+---
+title: env
+sidebarTitle: 概览
+description: 在启动阶段加载环境配置，在运行阶段安全地重复读取。
+icon: variable
+---
+
+# env
+
+`go-slim.dev/env` 适合把系统环境变量与一组 `.env` 文件合并成应用配置，然后在服务运行期间按字符串、整数、布尔值、时长或业务分组读取。
+
+它采用“启动时写入一次，运行时只读”的模型。你需要在启动 goroutine 和 server 前完成加载，确认关键配置，再调用 `Lock` 固定结果。
+
+## 得到第一份配置
+
+```go
+package main
+
+import (
+	"log"
+	"time"
+
+	"go-slim.dev/env"
+)
+
+func main() {
+	if err := env.Init(); err != nil {
+		log.Fatal(err)
+	}
+
+	port := env.Int("PORT", 8080)
+	timeout := env.Duration("REQUEST_TIMEOUT", 5*time.Second)
+
+	if !env.Exists("DATABASE_URL") {
+		log.Fatal("DATABASE_URL is required")
+	}
+	databaseURL := env.String("DATABASE_URL")
+
+	env.Lock()
+	startServer(port, timeout, databaseURL)
+}
+```
+
+`Init()` 默认从当前目录开始加载。不存在的标准 `.env` 文件会被忽略，其他读取或解析错误会返回。`Lock()` 之后读取可以并发复用，后续写入会失败。
+
+## 按需求选择读取方式
+
+| 你要完成的事 | API |
+| --- | --- |
+| 区分“未定义”与“定义为空” | `Lookup`、`Exists` |
+| 带默认值读取常用类型 | `String`、`Int`、`Float`、`Bool`、`Duration`、`List` |
+| 用环境变量填充结构体 | `Fill` |
+| 为同类组件提供默认值与覆盖值 | `Signed` |
+| 读取一组共同前缀的值 | `Map`、`Where` |
+| 构建独立于全局状态的配置集 | `New` |
+
+## 先理解两个边界
+
+Typed getter 在变量缺失、为空或无法转换时都会返回 fallback；没有 fallback 时返回类型零值。它们适合可选配置，但不能单独验证必填配置。需要可见的转换错误时，使用 `Fill` 或先 `Lookup` 再自行解析。
+
+`env` 不是动态配置中心。运行期间重新 `Load` 会破坏只读并发模型；需要热更新、远程下发、版本化或审计时，应使用具有明确同步语义的配置系统。
+
+<Callout type="info" title="设计思想">
+  这个包用阶段边界代替运行时锁：启动阶段允许修改，运行阶段只读。`Lock` 的作用是把团队约定变成可检测的程序约束。
+</Callout>
+
+## 渐进阅读
+
+1. [加载应用配置](/zh-Hans/libraries/env/guide/load-configuration)：理解文件发现与最小启动流程。
+2. [读取类型与分组配置](/zh-Hans/libraries/env/guide/typed-and-scoped-values)：选择 getter、结构体或 `Signed`。
+3. [生命周期、优先级与并发](/zh-Hans/libraries/env/advanced/lifecycle-and-precedence)：设计生产环境的配置边界。

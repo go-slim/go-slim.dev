@@ -1,0 +1,77 @@
+---
+title: Read typed and scoped values
+description: Choose typed getters for optional values and organize configuration with structs or Signed.
+---
+
+# Read typed and scoped values
+
+After loading, choose an access style from the importance of the setting: typed getters for optional values, structs for cohesive configuration, and `Signed` for defaults shared by repeated components with local overrides.
+
+## Read optional types
+
+```go
+port := env.Int("PORT", 8080)
+ratio := env.Float("SAMPLE_RATIO", 0.1)
+debug := env.Bool("DEBUG", false)
+timeout := env.Duration("REQUEST_TIMEOUT", 5*time.Second)
+origins := env.List("ALLOW_ORIGINS", []string{"https://example.com"})
+```
+
+`Duration` accepts standard library forms such as `500ms` and `2s`, plus integers interpreted directly as `time.Duration` nanoseconds. `List` splits on commas and trims each item.
+
+Typed getters deliberately collapse missing, empty, and unparseable values into the fallback. This convenience is not suitable for configuration that must reject bad input.
+
+## Populate a configuration struct
+
+```go
+type Config struct {
+	Port    int           `env:"PORT"`
+	Timeout time.Duration `env:"REQUEST_TIMEOUT"`
+	DB      DatabaseConfig
+}
+
+type DatabaseConfig struct {
+	URL string `env:"DATABASE_URL"`
+}
+
+var config Config
+if err := env.Fill(&config); err != nil {
+	return fmt.Errorf("decode environment: %w", err)
+}
+```
+
+`Fill` requires a pointer to a struct and descends into nested structs. An empty variable leaves the field unchanged; conversion of a non-empty value returns a field error on failure. Non-nil pointers to structs are also traversed, but nil pointers are not allocated.
+
+<Callout type="tip" title="Set defaults before Fill">
+  Construct Config with defaults first, then let environment values override it. This keeps default policy testable and searchable in Go rather than scattered across deployment files.
+</Callout>
+
+## Override repeated component settings
+
+Given:
+
+```dotenv
+CACHE_DRIVER=redis
+CACHE_DATABASE=1
+CACHE_BOOK_DATABASE=10
+CACHE_BOOK_SCOPE=app:books:
+```
+
+```go
+bookCache := env.Signed("CACHE", "BOOK")
+
+driver := bookCache.String("DRIVER")   // CACHE_DRIVER
+database := bookCache.Int("DATABASE")  // CACHE_BOOK_DATABASE
+scope := bookCache.String("SCOPE")     // CACHE_BOOK_SCOPE
+```
+
+Lookup tries `PREFIX_CATEGORY_KEY`, then falls back to `PREFIX_KEY` when the specific value is absent or empty. This suits “shared defaults plus a few instance overrides.” If an empty value must mean “explicitly disabled,” use `Exists` and define that policy yourself.
+
+## Lookup versus Exists
+
+- `Exists("KEY")` is true whenever the key is defined, even with an empty value.
+- `Lookup("KEY")` is true only when the key is defined and non-empty.
+
+Apply that distinction consistently to required values, explicit clearing, and inherited configuration.
+
+Next: [Lifecycle, precedence, and concurrency](/libraries/env/advanced/lifecycle-and-precedence).

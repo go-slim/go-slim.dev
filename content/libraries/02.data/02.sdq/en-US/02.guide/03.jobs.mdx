@@ -1,0 +1,110 @@
+---
+title: Queue jobs
+description: Publish, reserve, inspect, and transition jobs with the low-level API.
+---
+
+# Queue jobs
+
+`Put` makes the scheduling contract explicit:
+
+```go
+id, err := q.Put(
+	"email",
+	[]byte(`{"user_id":42}`),
+	10,             // priority: lower values run first
+	5*time.Minute,  // delay
+	60*time.Second, // TTR; zero uses DefaultTTR
+)
+```
+
+Topic names are validated, bodies must not exceed `MaxJobSize`, and the job is saved before it enters in-memory scheduling. A storage failure means the job was not accepted.
+
+## Reserve work
+
+```go
+job, err := q.Reserve([]string{"email", "webhook"}, 5*time.Second)
+switch {
+case errors.Is(err, sdq.ErrTimeout):
+	// No ready job arrived before the deadline.
+case err != nil:
+	return err
+default:
+	// Process job.
+}
+```
+
+The topic list must be non-empty and valid. A timeout of zero performs an immediate attempt. Each topic permits a bounded number of waiting workers; overload can return `ErrTooManyWaiters`.
+
+Reservation changes the job to `StateReserved` and starts its TTR lease. `Job.Meta` is an independent metadata snapshot, but queue state can continue changing after it was returned.
+
+## Load the body
+
+Reserved bodies are loaded lazily from storage:
+
+```go
+body, err := job.GetBody()
+if err != nil {
+	_ = job.Bury(job.Meta.Priority)
+	return err
+}
+```
+
+`GetBody` is concurrency-safe and caches its result. `Body()` suppresses loading errors and returns nil on failure; production handlers should normally prefer `GetBody`.
+
+## Finish or reschedule
+
+```go
+if err := process(body); err == nil {
+	return job.Delete()
+}
+
+return job.Release(
+	job.Meta.Priority,
+	30*time.Second,
+)
+```
+
+| Operation | Valid source state | Result |
+| --- | --- | --- |
+| `Delete` | Reserved | Permanently removes metadata and body |
+| `Release(priority, delay)` | Reserved | Returns to ready or delayed with a new priority |
+| `Bury(priority)` | Reserved | Moves to buried for manual policy |
+| `Touch()` | Reserved | Resets the deadline using the original TTR |
+| `Touch(duration)` | Reserved | Extends the lease under configured limits |
+| `Kick()` | Buried | Returns that job to ready |
+
+Use queue-level `Kick(topic, bound)` for a bounded buried batch. `ForceDelete` can remove any state and is intended for administrative cleanup, not normal worker success.
+
+## Peek without reservation
+
+`Peek`, `PeekReady`, `PeekDelayed`, and `PeekBuried` inspect jobs without leasing them. A peek is not a claim: never process a job based on it. Use these methods for diagnostics and reserve before doing work.
+
+## Error-aware worker loop
+
+```go
+for {
+	job, err := q.Reserve(topics, time.Second)
+	if errors.Is(err, sdq.ErrTimeout) {
+		continue
+	}
+	if err != nil {
+		return err
+	}
+
+	body, err := job.GetBody()
+	if err != nil {
+		_ = job.Bury(job.Meta.Priority)
+		continue
+	}
+
+	if err := process(body); err != nil {
+		_ = job.Release(job.Meta.Priority, retryDelay(err))
+		continue
+	}
+	if err := job.Delete(); err != nil {
+		return err
+	}
+}
+```
+
+Do not ignore transition errors silently in real workers. A failed delete leaves uncertain ownership and can cause later duplicate processing; record the job ID and error for reconciliation.

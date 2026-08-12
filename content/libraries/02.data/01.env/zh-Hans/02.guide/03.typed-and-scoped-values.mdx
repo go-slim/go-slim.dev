@@ -1,0 +1,77 @@
+---
+title: 读取类型与分组配置
+description: 为可选值选择 typed getter，并用结构体或 Signed 组织配置。
+---
+
+# 读取类型与分组配置
+
+加载完成后，应根据配置的重要程度选择读取方式：可选值使用 typed getter，成组配置使用结构体，重复组件使用 `Signed` 的默认值与覆盖值。
+
+## 读取可选类型
+
+```go
+port := env.Int("PORT", 8080)
+ratio := env.Float("SAMPLE_RATIO", 0.1)
+debug := env.Bool("DEBUG", false)
+timeout := env.Duration("REQUEST_TIMEOUT", 5*time.Second)
+origins := env.List("ALLOW_ORIGINS", []string{"https://example.com"})
+```
+
+`Duration` 接受 `500ms`、`2s` 等标准库格式，也接受解释为 `time.Duration` 纳秒数的整数。`List` 以逗号拆分并 trim 每一项。
+
+Typed getter 把缺失、空值和解析失败统一处理为 fallback。这是一项有意的便利语义，不适合必须拒绝错误输入的配置。
+
+## 填充配置结构体
+
+```go
+type Config struct {
+	Port    int           `env:"PORT"`
+	Timeout time.Duration `env:"REQUEST_TIMEOUT"`
+	DB      DatabaseConfig
+}
+
+type DatabaseConfig struct {
+	URL string `env:"DATABASE_URL"`
+}
+
+var config Config
+if err := env.Fill(&config); err != nil {
+	return fmt.Errorf("decode environment: %w", err)
+}
+```
+
+`Fill` 要求传入结构体指针，并递归处理嵌套结构体。变量为空时保持字段原值；非空值转换失败会返回字段错误。非 nil 的结构体指针字段也会递归填充，nil 指针不会自动分配。
+
+<Callout type="tip" title="先写默认值，再 Fill">
+  先构造带默认值的 Config，再用环境变量覆盖，能让默认策略在 Go 代码中可测试、可搜索；不要把所有默认值分散到部署文件。
+</Callout>
+
+## 为同类组件设置覆盖值
+
+假设配置为：
+
+```dotenv
+CACHE_DRIVER=redis
+CACHE_DATABASE=1
+CACHE_BOOK_DATABASE=10
+CACHE_BOOK_SCOPE=app:books:
+```
+
+```go
+bookCache := env.Signed("CACHE", "BOOK")
+
+driver := bookCache.String("DRIVER")   // CACHE_DRIVER
+database := bookCache.Int("DATABASE")  // CACHE_BOOK_DATABASE
+scope := bookCache.String("SCOPE")     // CACHE_BOOK_SCOPE
+```
+
+查找顺序是 `PREFIX_CATEGORY_KEY`，不存在或为空时回退到 `PREFIX_KEY`。这适合“共享默认值 + 少量实例覆盖”，但 category 值为空也会触发 fallback；若空值需要表达“显式关闭”，应改用 `Exists` 配合自定义策略。
+
+## Lookup 与 Exists 的区别
+
+- `Exists("KEY")`：只要 key 已定义就返回 true，即使 value 为空。
+- `Lookup("KEY")`：只有 key 已定义且 value 非空才返回 true。
+
+这个区别应在必填、显式清空和继承配置中统一约定。
+
+下一步：[生命周期、优先级与并发](/zh-Hans/libraries/env/advanced/lifecycle-and-precedence)。

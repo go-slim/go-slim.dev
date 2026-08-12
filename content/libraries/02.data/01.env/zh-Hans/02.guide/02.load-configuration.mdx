@@ -1,0 +1,94 @@
+---
+title: 加载应用配置
+description: 从系统环境与 .env 文件建立一份可验证的启动配置。
+---
+
+# 加载应用配置
+
+这一页完成一个目标：在应用启动时加载配置，验证必填值，并在任何并发工作开始前固定结果。
+
+## 安装
+
+```sh
+go get go-slim.dev/env
+```
+
+当前模块要求 Go 1.24 或更高版本。
+
+## 准备配置文件
+
+开发目录可以包含：
+
+```dotenv
+# .env
+APP_ENV=dev
+PORT=8080
+REQUEST_TIMEOUT=5s
+
+# .env.dev.local，不提交到版本控制
+DATABASE_URL=postgres://localhost/app
+```
+
+然后在 `main` 的最前面加载：
+
+```go
+if err := env.Init(); err != nil {
+	log.Fatalf("load configuration: %v", err)
+}
+
+databaseURL, ok := env.Lookup("DATABASE_URL")
+if !ok {
+	log.Fatal("DATABASE_URL must be non-empty")
+}
+
+port := env.Int("PORT", 8080)
+env.Lock()
+```
+
+正确结果是：所有后续组件看到同一份配置，且运行阶段无法意外加载另一份文件。
+
+## 从指定目录加载
+
+```go
+if err := env.InitWithDir("./config"); err != nil {
+	return err
+}
+
+certificate := env.Path("certs", "server.pem")
+```
+
+`Path` 以最近一次成功初始化的目录为根。若初始化失败，缓存和 root 会被清空，避免应用继续使用半份配置。
+
+## 加载额外文件
+
+```go
+if err := env.Load("./secrets/runtime.env"); err != nil {
+	return err
+}
+env.Lock()
+```
+
+只在初始化阶段调用 `Load`。与 `Init` 自动发现文件不同，显式 `Load` 的文件缺失会返回错误。
+
+## 必填值与可选值
+
+```go
+// 必填：区分缺失或空值。
+raw, ok := env.Lookup("WORKER_COUNT")
+if !ok {
+	return errors.New("WORKER_COUNT is required")
+}
+workers, err := strconv.Atoi(raw)
+if err != nil || workers <= 0 {
+	return fmt.Errorf("invalid WORKER_COUNT %q", raw)
+}
+
+// 可选：转换失败时也使用 fallback。
+debug := env.Bool("DEBUG", false)
+```
+
+<Callout type="warning" title="Typed getter 不报告转换错误">
+  `Int("PORT", 8080)` 无法区分“未设置 PORT”和“PORT=abc”。关键配置应先 `Lookup`，再用标准库显式解析和校验。
+</Callout>
+
+下一步：[读取类型与分组配置](/zh-Hans/libraries/env/guide/typed-and-scoped-values)。

@@ -1,0 +1,16 @@
+---
+title: Guide
+description: Construct and start a queue, then choose the low-level Job API or typed Task API.
+---
+
+# Guide
+
+Establish a queue with predictable startup and shutdown before publishing and consuming work.
+
+1. [Setup and lifecycle](/libraries/sdq/guide/setup-and-lifecycle): choose storage/ticker and handle recovery and shutdown.
+2. [Queue jobs](/libraries/sdq/guide/jobs): use this when reserve, delete, release, and bury transitions need explicit control.
+3. [Task API](/libraries/sdq/guide/task-api): use this for JSON payloads, typed handlers, and worker concurrency.
+
+<Callout type="warning" title="Design idempotency before starting workers">
+  Reserved jobs can become visible again after a TTR timeout or uncertain process failure. This recovery design also requires handlers to tolerate duplicate execution.
+</Callout>

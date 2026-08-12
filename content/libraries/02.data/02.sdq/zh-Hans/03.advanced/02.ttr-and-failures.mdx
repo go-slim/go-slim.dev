@@ -1,0 +1,69 @@
+---
+title: TTR 与失败处理
+description: 设计 lease、retry、touch policy、幂等与 poison-job 处理。
+---
+
+# TTR 与失败处理
+
+TTR 是 reservation lease，不是强制终止执行的开关。Deadline 到期后，scheduler 会把仍处于 reserved 的 job 送回 ready，并增加 timeout metadata；原 worker 除非观察自己的 context 或主动停止，否则仍可能继续。
+
+这形成有意的 at-least-once 取舍：可以从 worker crash 恢复，但也可能出现重叠 attempt。
+
+## 选择 TTR
+
+TTR 应高于正常高百分位运行时长，并包含依赖与 shutdown 余量。过短会在健康的慢任务上制造重复，过长会延迟进程丢失后的恢复。
+
+持续时长差异很大的工作应使用不同 task type，或通过每次 publish 的 `task.TTR` 覆盖。
+
+## Touch 长任务
+
+```go
+touchTicker := time.NewTicker(20 * time.Second)
+defer touchTicker.Stop()
+
+for !done {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-touchTicker.C:
+		if err := job.Touch(); err != nil {
+			return fmt.Errorf("extend job lease: %w", err)
+		}
+	case result := <-work:
+		return result
+	}
+}
+```
+
+`Touch()` 从当前时间起按原 TTR 重设 deadline，`Touch(duration)` 请求明确 extension。Queue 通过 `MaxTouches`、`MaxTouchDuration` 和 `MinTouchInterval` 限制次数、累计时长和最小间隔。
+
+应在 deadline 前预留足够 scheduler/storage latency 余量完成 touch。收到 `ErrTouchLimitExceeded` 或 `ErrInvalidTouchTime` 后，不能再假设自己独占 job。
+
+## 幂等
+
+保护对外可见的 side effect：
+
+- 使用唯一业务 operation key 和数据库 unique constraint；
+- 尽可能在一个 transaction 中记录完成状态与 side effect；
+- 使用外部 provider 的 idempotency-key 能力；
+- 应用命令前重新读取当前 domain state；
+- 保证 delete acknowledgement 丢失后再次执行仍安全。
+
+Queue job ID 标识一条 stored attempt，但 domain-level key 通常才是正确去重边界。
+
+## 分类失败
+
+| 失败 | 常见动作 |
+| --- | --- |
+| 临时上游故障 | 带 jitter 的有界指数 backoff 后 release |
+| Rate limit | 按服务端提示 release，并受应用上限约束 |
+| Payload 非法或版本未知 | Bury |
+| 业务对象不存在 | 根据审计要求 delete 或 bury |
+| Worker shutdown | 停止 side effect，让 TTR 恢复或明确 release |
+| Commit 状态不确定 | 重试前按 idempotency key 核对 |
+
+必须限制 retry 次数和总 retry age。无限 release loop 会消耗 storage 并隐藏 poison work。Buried job 是审查队列，应监控增长并提供经过测试的 kick/delete 流程。
+
+## Transition failure
+
+每个状态转换都要持久化 metadata。业务 side effect 已成功、但 `Delete` 失败时，工作仍可能再次执行。应记录 job ID、topic、idempotency key 与 transition error。Handler 返回不代表 queue 已确认完成。

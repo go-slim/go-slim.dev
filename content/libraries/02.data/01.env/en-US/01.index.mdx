@@ -1,0 +1,71 @@
+---
+title: env
+sidebarTitle: Overview
+description: Load environment configuration during startup and read it safely throughout runtime.
+icon: variable
+---
+
+# env
+
+`go-slim.dev/env` combines the process environment with a conventional set of `.env` files, then lets an application read strings, integers, booleans, durations, or scoped groups of settings.
+
+Its model is “write once during startup, read many times during runtime.” Finish loading and validating configuration before starting goroutines or servers, then call `Lock` to freeze it.
+
+## Get a first configuration
+
+```go
+package main
+
+import (
+	"log"
+	"time"
+
+	"go-slim.dev/env"
+)
+
+func main() {
+	if err := env.Init(); err != nil {
+		log.Fatal(err)
+	}
+
+	port := env.Int("PORT", 8080)
+	timeout := env.Duration("REQUEST_TIMEOUT", 5*time.Second)
+
+	if !env.Exists("DATABASE_URL") {
+		log.Fatal("DATABASE_URL is required")
+	}
+	databaseURL := env.String("DATABASE_URL")
+
+	env.Lock()
+	startServer(port, timeout, databaseURL)
+}
+```
+
+`Init()` starts from the current directory. Missing conventional `.env` files are ignored; other read or parse failures are returned. Reads can be shared concurrently after `Lock()`, while subsequent writes fail.
+
+## Choose a reading style
+
+| Goal | API |
+| --- | --- |
+| Distinguish undefined from defined-but-empty | `Lookup`, `Exists` |
+| Read common types with fallbacks | `String`, `Int`, `Float`, `Bool`, `Duration`, `List` |
+| Populate a configuration struct | `Fill` |
+| Share defaults with per-category overrides | `Signed` |
+| Read a group with a common prefix | `Map`, `Where` |
+| Build configuration without global state | `New` |
+
+## Understand two boundaries first
+
+A typed getter returns its fallback when a variable is missing, empty, or cannot be converted. Without a fallback it returns the type's zero value. This is useful for optional configuration but does not validate required input. Use `Fill`, or `Lookup` followed by explicit parsing, when conversion failures must be visible.
+
+`env` is not a dynamic configuration service. Reloading during runtime violates the read-only concurrency model. Use a configuration system with explicit synchronization when you need hot reload, remote delivery, versioning, or audit history.
+
+<Callout type="info" title="Design idea">
+  The package replaces runtime locking with a phase boundary: startup may mutate state; runtime only reads it. `Lock` turns that team convention into an enforceable program constraint.
+</Callout>
+
+## Progressive path
+
+1. [Load application configuration](/libraries/env/guide/load-configuration) explains file discovery and the smallest startup flow.
+2. [Read typed and scoped values](/libraries/env/guide/typed-and-scoped-values) helps choose getters, structs, and `Signed`.
+3. [Lifecycle, precedence, and concurrency](/libraries/env/advanced/lifecycle-and-precedence) establishes production configuration boundaries.

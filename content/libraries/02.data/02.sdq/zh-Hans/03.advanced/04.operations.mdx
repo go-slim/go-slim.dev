@@ -1,0 +1,78 @@
+---
+title: 运维
+description: 检查 queue state、导出 metrics、保护 web UI，并规划容量和关闭流程。
+---
+
+# 运维
+
+Queue 应通过明确的 snapshot 与 alert 运维，不能只从 worker log 推测健康状态。
+
+## Inspector
+
+```go
+inspector := sdq.NewInspector(q)
+stats := inspector.Stats()
+
+log.Info("queue",
+	"ready", stats.ReadyJobs,
+	"delayed", stats.DelayedJobs,
+	"reserved", stats.ReservedJobs,
+	"buried", stats.BuriedJobs,
+	"timeouts", stats.Timeouts,
+)
+```
+
+`Inspector` 还提供排序后的 topic stats、waiting worker、storage/ticker stats、job metadata/body lookup、cursor-aware list、kick 和 force delete。Topic 或 job 数可能增长时使用分页 variant。
+
+有价值的告警包括：持续 ready depth、从应用 metadata 计算的 oldest-ready age、buried 增长、重复 timeout、storage failure、waiting-worker 饱和，以及始终未完成的 recovery error。
+
+## Prometheus
+
+```go
+prometheus.MustRegister(metrics.NewCollector(q))
+```
+
+Collector 导出按 state 分类的 job gauge、topic/waiter gauge 和累计 operation counter。Topic name 会成为 waiting worker 的 label value，因此必须限制 topic cardinality。不要用 user ID 或 request-specific value 创建 topic。
+
+## 管理 web UI
+
+```go
+query := webui.NewQuery(q)
+admin := webui.NewHandlerWithBasePath(query, "/admin/queue/")
+
+mux.Handle("/admin/queue/", http.StripPrefix("/admin/queue", admin))
+```
+
+Handler 可以读取原始 job body，并执行 kick/delete。它不提供 authentication、authorization、CSRF、TLS、audit log 或 rate limit。只能挂载在受信任管理边界之后；cookie 认证部署必须为 mutation endpoint 提供 CSRF protection。
+
+内置 frontend 默认从公共 CDN 加载固定版本 browser module。离线、CSP 或供应链策略需要时应自行托管。
+
+## 容量控制
+
+- `MaxJobSize` 限制单个 stored payload；大对象放在其他 storage。
+- `MaxTopics` 防止无限调度分区。
+- `MaxJobsPerTopic` 限制每个 topic inventory。
+- 每个 topic 的 reserve waiter 有界，`ErrTooManyWaiters` 应视为 overload。
+- `EnableTopicCleanup` 配合 `TopicCleanupInterval` 清理空 topic structure。
+- Ticker resolution、SQLite batch setting、worker concurrency 与依赖容量要一起调优。
+
+较小 priority 数字优先，因此持续高优先流量可能饿死较大值。不能接受 starvation 时使用独立 topic 或应用 fairness policy。
+
+## 优雅关闭
+
+使用以下顺序：
+
+1. 停止接收 producer/API request。
+2. 停止 task 或 custom worker，并等待 handler 返回。
+3. 如果 metrics/UI 能操作 queue，停止其 mutation traffic。
+4. 调用 `Queue.Stop`，取消 recovery/ticker 并关闭 storage。
+
+Worker cancellation 不会撤销外部 side effect。Handler 应观察 context，有意识地完成或放弃工作，并在 TTR 后续 redelivery 时依靠幂等。
+
+## 运维 runbook
+
+- 不执行工作地检查一个 buried job。
+- 验证或修复 payload/底层依赖。
+- Kick 有界数量并观察 failure/timeout counter。
+- 只有具备 audit trail 且理解业务后果时才 force-delete。
+- 生产依赖 SQLite 前演练 backup/restore 与 restart recovery。

@@ -1,0 +1,91 @@
+---
+title: Setup and lifecycle
+description: Construct a queue with required storage and ticker dependencies, then start and stop it safely.
+---
+
+# Setup and lifecycle
+
+A queue requires both a `Storage` and a `Ticker`. `DefaultConfig` supplies limits, not those dependencies:
+
+```go
+config := sdq.DefaultConfig()
+config.Storage = memory.New()
+config.Ticker = dynsleep.New(
+	50*time.Millisecond, // minimum scheduling interval
+	time.Second,         // idle polling interval
+)
+
+q, err := sdq.New(config)
+if err != nil {
+	return err
+}
+if err := q.Start(); err != nil {
+	_ = q.Stop()
+	return err
+}
+defer func() { _ = q.Stop() }()
+```
+
+Without either dependency, `New` returns an `ErrInvalidConfig`-wrapped error. `Ticker`/`Storage` instances take precedence over their factory functions.
+
+## Defaults and limits
+
+```go
+config := sdq.DefaultConfig()
+config.DefaultTTR = 90 * time.Second
+config.MaxJobSize = 64 << 10
+config.MaxTouches = 10
+config.MaxTouchDuration = 10 * time.Minute
+config.MinTouchInterval = 5 * time.Second
+config.MaxTopics = 200
+config.MaxJobsPerTopic = 100_000
+```
+
+Zero has field-specific meaning. For example, zero `DefaultTTR` and `MaxJobSize` are defaulted by `New`, while zero topic/job limits mean unlimited. Start from `DefaultConfig` and override deliberately.
+
+## Choose a ticker
+
+```go
+config.Ticker = dynsleep.New(20*time.Millisecond, time.Second)
+```
+
+`dynsleep` recalculates the nearest deadline and is a good default for sparse or irregular delayed work. `timewheel` trades fixed tick resolution and wheel size for efficient scheduling of many deadlines:
+
+```go
+config.Ticker = timewheel.New(100*time.Millisecond, 3600)
+```
+
+The queue can register and wake topics before ticker `Start`, because `Put` is allowed before queue startup. Custom ticker implementations must support that lifecycle.
+
+## Put before Start
+
+`New` reads the storage maximum ID and returns a queue that can already accept `Put`. Pre-start puts are synchronously saved and registered in memory. `Start` then initializes scheduling and reserve waiters.
+
+Do not call `Reserve` as a pre-start workflow. Start the queue before consumers.
+
+## Asynchronous recovery
+
+`Start` does not wait for persisted jobs to finish loading. It starts the runtime, snapshots the maximum stored ID, and recovers metadata in background pages. New jobs can be published and consumed while recovery runs; statistics may temporarily be partial.
+
+Wait when the application requires a complete startup view:
+
+```go
+if err := q.Start(); err != nil {
+	return err
+}
+if err := q.WaitForRecovery(30 * time.Second); err != nil {
+	return fmt.Errorf("recover queue: %w", err)
+}
+```
+
+Timeout returns `ErrTimeout` without canceling recovery. Calling it before a successful start returns `ErrQueueNotStarted`. A `RecoveryCallback` can report progress, but runs inside the recovery goroutine and must return quickly; it must not re-enter queue lifecycle methods.
+
+## Start and Stop rules
+
+- `Start` is idempotent and returns the first start result; later options are ignored.
+- `Stop` is idempotent, closes storage, and permanently stops this queue instance.
+- Calling `Stop` before `Start` still closes the queue and storage.
+- Lifecycle operations are not intended to run concurrently with `Put`, another start, or stop.
+- Stop producers and workers before stopping the queue, so no operation races storage close.
+
+Create a new queue instance after shutdown; a stopped queue cannot restart.

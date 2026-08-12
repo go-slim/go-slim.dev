@@ -1,0 +1,71 @@
+---
+title: 生命周期、优先级与并发
+description: 理解环境文件覆盖顺序、Lock 契约与独立 Environ 的使用边界。
+---
+
+# 生命周期、优先级与并发
+
+生产配置的核心不是 getter 数量，而是所有组件是否在同一时间看到同一份、来源明确且已经验证的值。
+
+## 实际加载顺序
+
+`InitWithDir(dir)` 按下面顺序写入缓存，后加载的同名 key 覆盖先前值：
+
+1. 当前进程的 `os.Environ()`；
+2. `.env`；
+3. `.env.local`；
+4. 根据此时的 `APP_ENV`（默认 `prod`）加载 `.env.{app_env}`；
+5. `.env.{app_env}.local`。
+
+这意味着文件可以覆盖系统环境变量。若部署策略要求系统注入值拥有最高优先级，当前 `Init` 模型不符合该要求；请改用独立 `Environ` 明确控制写入顺序，或不要在生产加载 `.env` 文件。
+
+<Callout type="warning" title="APP_ENV 只决定一次文件名">
+  `.env.{app_env}` 内即使再次修改 APP_ENV，也不会触发第二轮环境文件发现。应在系统环境、`.env` 或 `.env.local` 中确定它。
+</Callout>
+
+## 把启动分成三个阶段
+
+```go
+// 1. 单线程加载。
+if err := env.InitWithDir(configDir); err != nil {
+	return err
+}
+
+// 2. 解析并验证形成应用 Config。
+config, err := readConfig()
+if err != nil {
+	return err
+}
+
+// 3. 固定环境快照，再启动并发组件。
+env.Lock()
+return run(config)
+```
+
+读操作只有在不再发生写入时才并发安全。`Lock` 幂等且不可撤销：`Load`、`Read` 和 `Environ.Updates` 返回 `ErrLocked`，`Clean` 会 panic；全局 `Updates` 只通过 bool 表示失败。
+
+## 不使用全局状态
+
+测试、工具或同一进程内多份配置可以创建独立实例：
+
+```go
+configuration := env.New()
+if err := configuration.Read(strings.NewReader("PORT=9090\n")); err != nil {
+	return err
+}
+configuration.Lock()
+
+port := configuration.Int("PORT", 8080)
+```
+
+每个实例仍遵守相同的“先写后读”契约。不要在 goroutine 中一边 `Map` / `Where`，一边 `Load` / `Updates`。
+
+## Secret 与诊断
+
+`All`、`Map` 和 `Where` 返回普通 map，可能包含 secret。不要直接写入日志、错误页面或诊断 endpoint；建立允许输出的 key 白名单，并在读取后按应用需要复制或清除敏感值。
+
+`.env.local` 与环境专属 local 文件通常包含开发 secret，应加入版本控制忽略规则。生产 secret 更适合由部署平台注入，而不是放入镜像或仓库。
+
+## 设计取舍
+
+只读 runtime 让热路径无需锁，但代价是没有内置 reload 和变更通知。这个模型适合“配置随进程版本发布”的服务；需要不停机更新时，应用应把 env 只作为 bootstrap，再把动态部分交给专用 provider。

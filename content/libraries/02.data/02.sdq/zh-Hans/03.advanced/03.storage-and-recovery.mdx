@@ -1,0 +1,66 @@
+---
+title: 存储与恢复
+description: 选择 durability model，并理解启动恢复与自定义 Storage 契约。
+---
+
+# 存储与恢复
+
+sdq 在 scheduler memory 中保存轻量 `JobMeta`，body 单独存储；reserved `Job` 按需加载 body。Storage choice 改变持久化，不改变调度语义。
+
+## Memory storage
+
+```go
+config.Storage = memory.New()
+```
+
+Memory storage 并发安全，适合测试或允许随进程消失的工作。即使应用优雅关闭，它也不会因此成为持久化方案。
+
+## SQLite storage
+
+```go
+store, err := sqlite.New(
+	"./var/jobs.db",
+	sqlite.WithMaxBatchSize(500),
+	sqlite.WithMaxBatchBytes(8<<20),
+)
+if err != nil {
+	return err
+}
+config.Storage = store
+```
+
+实现使用 `github.com/mattn/go-sqlite3`，开启 WAL，并设置 `synchronous=NORMAL`。`SaveJob` 内部可以合并并发请求，但会等待 transaction 结果后才返回。因此成功 `Put` 能确认新 body 和 metadata 已可读。
+
+Metadata transition 使用有界异步 update buffer。`UpdateJobMeta` 返回 nil 表示 update 已被接收，不一定已落盘。`Close` 会在有序关闭时排空已接收 update；进程突然退出可能丢失最近状态转换。具体 SQLite store 提供 `UpdateJobMetaSync`，供 queue abstraction 外需要立即 durability 的调用方使用。
+
+## 启动恢复
+
+Queue 启动时获取 storage 最大 ID 快照，并按升序 cursor 分页扫描 metadata，不加载 body。Recovered delayed/reserved job 会按 timestamp 规范化；快照之后的新 job 已通过正常路径登记，不会重复恢复。
+
+恢复异步执行。Readiness 要求完整 inventory 时使用 `WaitForRecovery`，并把恢复错误暴露给 health check 或 deployment control。
+
+## 自定义 Storage 契约
+
+自定义实现需要满足比普通 CRUD adapter 更强的保证：
+
+- `SaveJob` 返回 nil 前必须原子地让 metadata 与不可变 body 可读。
+- `UpdateJobMeta` 只能在有界范围缓冲，`Close` 必须排空已接收 update。
+- Cursor scan 只返回大于给定 cursor 的严格升序 ID。
+- `HasMore` 为 true 时，`NextCursor` 必须前进并等于本页最后一个 ID。
+- `CountJobs` 忽略分页字段，只应用 topic/state filter。
+- 空存储的 `GetMaxJobID` 返回零。
+- `Close` 不需要与 active operation 竞态；应用先停止调用方。
+
+适用时返回 `ErrNotFound`、`ErrJobExists` 和 `ErrStorageClosed`，使调用方可以分类失败。
+
+## 部署 durability
+
+SQLite durability 仍取决于：
+
+- 数据库与 WAL 位于持久化 storage；
+- 单 writer 部署模型与该文件兼容；
+- 文件权限、剩余空间、备份与 restore test；
+- shutdown 时间足够排空 metadata update；
+- 理解 `synchronous=NORMAL` 和运行平台接受的丢失窗口。
+
+Job 必须跨容器替换保留时，不要把 SQLite queue 放在 ephemeral filesystem。

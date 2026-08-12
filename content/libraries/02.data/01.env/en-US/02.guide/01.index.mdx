@@ -1,0 +1,13 @@
+---
+title: Guide
+description: Load application configuration and expose it through typed or scoped values.
+---
+
+# Guide
+
+Build configuration in startup order: load all sources first, validate the values your service requires, then expose typed settings to runtime code.
+
+1. [Load application configuration](/libraries/env/guide/load-configuration) explains file discovery, environment merging, and the smallest startup flow.
+2. [Read typed and scoped values](/libraries/env/guide/typed-and-scoped-values) helps choose getters, structs, and `Signed` groups.
+
+Continue to [Advanced](/libraries/env/advanced) before relying on precedence, locking, or concurrent reads in production.

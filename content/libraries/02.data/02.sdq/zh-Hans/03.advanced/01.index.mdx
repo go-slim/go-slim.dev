@@ -1,0 +1,16 @@
+---
+title: 进阶
+description: 设计重复执行、失败恢复、持久化与生产运维。
+---
+
+# 进阶
+
+进阶部分回答“应用重启、worker 失败和队列增长后会怎样”。
+
+- [TTR 与失败处理](/zh-Hans/libraries/sdq/advanced/ttr-and-failures)：lease、touch、retry、poison job 与幂等。
+- [存储与恢复](/zh-Hans/libraries/sdq/advanced/storage-and-recovery)：memory/SQLite 保证、恢复和自定义 Storage 契约。
+- [运维](/zh-Hans/libraries/sdq/advanced/operations)：Inspector、metrics、web UI 安全、容量和关闭顺序。
+
+<Callout type="info" title="存储可持久不等于业务 exactly-once">
+  SQLite 可以保留 job，却不能使“业务副作与 delete job”自动成为同一个事务。跨系统一致性仍需要幂等键、outbox/inbox 或领域事务设计。
+</Callout>

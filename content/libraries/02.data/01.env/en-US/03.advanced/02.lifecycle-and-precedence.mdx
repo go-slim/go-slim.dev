@@ -1,0 +1,71 @@
+---
+title: Lifecycle, precedence, and concurrency
+description: Understand file override order, the Lock contract, and independent Environ boundaries.
+---
+
+# Lifecycle, precedence, and concurrency
+
+Production configuration is less about the number of getters than ensuring every component sees the same validated values, at the same time, from understood sources.
+
+## Actual load order
+
+`InitWithDir(dir)` writes values in this order, with later values replacing an existing key:
+
+1. the current process `os.Environ()`;
+2. `.env`;
+3. `.env.local`;
+4. `.env.{app_env}`, based on `APP_ENV` at that point (default `prod`);
+5. `.env.{app_env}.local`.
+
+Files can therefore override the process environment. If deployment policy requires injected process values to have highest precedence, the current `Init` model does not match it. Control writes explicitly with an independent `Environ`, or avoid loading `.env` files in production.
+
+<Callout type="warning" title="APP_ENV selects a filename once">
+  Changing APP_ENV inside `.env.{app_env}` does not start another discovery pass. Establish it in the process environment, `.env`, or `.env.local`.
+</Callout>
+
+## Separate startup into three phases
+
+```go
+// 1. Load on one goroutine.
+if err := env.InitWithDir(configDir); err != nil {
+	return err
+}
+
+// 2. Parse and validate an application Config.
+config, err := readConfig()
+if err != nil {
+	return err
+}
+
+// 3. Freeze the snapshot, then start concurrent components.
+env.Lock()
+return run(config)
+```
+
+Reads are concurrent-safe only when writes have stopped. `Lock` is idempotent and irreversible. `Load`, `Read`, and `Environ.Updates` return `ErrLocked`; `Clean` panics; the package-level `Updates` reports failure only through its boolean result.
+
+## Avoid global state
+
+Tests, tools, and processes needing multiple configurations can create an independent instance:
+
+```go
+configuration := env.New()
+if err := configuration.Read(strings.NewReader("PORT=9090\n")); err != nil {
+	return err
+}
+configuration.Lock()
+
+port := configuration.Int("PORT", 8080)
+```
+
+Every instance follows the same write-then-read contract. Do not run `Map` or `Where` concurrently with `Load` or `Updates`.
+
+## Secrets and diagnostics
+
+`All`, `Map`, and `Where` return ordinary maps that may contain secrets. Do not write them directly to logs, error pages, or diagnostic endpoints. Define an allowlist of displayable keys and copy or clear sensitive values according to application needs.
+
+Local environment files often contain development secrets and belong in version-control ignore rules. Production secrets are better injected by the deployment platform than stored in an image or repository.
+
+## Design tradeoff
+
+A read-only runtime removes locks from hot reads, at the cost of built-in reload and change notifications. This fits services whose configuration ships with each process version. For live updates, use env only to bootstrap a dedicated dynamic provider.

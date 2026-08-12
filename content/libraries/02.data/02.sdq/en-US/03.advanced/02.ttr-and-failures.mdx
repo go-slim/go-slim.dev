@@ -1,0 +1,69 @@
+---
+title: TTR and failure handling
+description: Design leases, retries, touch policy, idempotency, and poison-job handling.
+---
+
+# TTR and failure handling
+
+TTR is a reservation lease, not a hard execution kill switch. When its deadline passes, the scheduler moves a still-reserved job back to ready and increments timeout metadata. The original worker may continue unless its own context or logic stops.
+
+This creates a deliberate at-least-once trade-off: recovery from crashed workers is possible, but overlapping attempts can occur.
+
+## Choose TTR
+
+Set TTR above the normal high-percentile runtime plus dependency and shutdown margin. A value that is too short causes duplicate attempts during healthy slow work; a value that is too long delays recovery after process loss.
+
+Use separate task types or per-publish `task.TTR` overrides when workloads have very different duration distributions.
+
+## Touch long-running work
+
+```go
+touchTicker := time.NewTicker(20 * time.Second)
+defer touchTicker.Stop()
+
+for !done {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-touchTicker.C:
+		if err := job.Touch(); err != nil {
+			return fmt.Errorf("extend job lease: %w", err)
+		}
+	case result := <-work:
+		return result
+	}
+}
+```
+
+`Touch()` resets the deadline from the current time using the job's original TTR. `Touch(duration)` requests an explicit extension. Queue configuration limits count, cumulative duration, and minimum interval through `MaxTouches`, `MaxTouchDuration`, and `MinTouchInterval`.
+
+Touch before the deadline with enough margin for scheduler and storage latency. After an `ErrTouchLimitExceeded` or `ErrInvalidTouchTime`, stop assuming exclusive ownership.
+
+## Idempotency
+
+Protect externally visible side effects:
+
+- use a unique business operation key and a database uniqueness constraint;
+- record completion and side effects in one transaction where possible;
+- make provider calls idempotent with their idempotency-key features;
+- re-read current domain state before applying a command;
+- keep handlers safe when a delete acknowledgement is lost.
+
+Queue job ID identifies one stored attempt, but a domain-level key is usually the correct deduplication boundary.
+
+## Classify failures
+
+| Failure | Typical action |
+| --- | --- |
+| Temporary upstream outage | Release with bounded exponential backoff and jitter |
+| Rate limit | Release according to server guidance, capped by policy |
+| Invalid payload or unknown version | Bury |
+| Missing business object | Delete or bury according to audit requirements |
+| Worker shutdown | Stop side effects; let TTR recover or release deliberately |
+| Uncertain commit | Reconcile by idempotency key before retrying |
+
+Cap retry count and total retry age. Infinite release loops consume storage and hide poison work. Buried jobs form a review queue; alert on growth and provide a tested kick/delete procedure.
+
+## Transition failures
+
+Every state transition persists metadata. A failure after the business side effect but before `Delete` leaves work eligible for another attempt. Log job ID, topic, idempotency key, and transition error. Never assume returning from handler means the queue acknowledged completion.

@@ -1,0 +1,83 @@
+---
+title: Task API
+description: 注册 JSON task schema、publish option，并运行有界 worker 并发。
+---
+
+# Task API
+
+`go-slim.dev/sdq/x/task` 把稳定 task name 映射到 JSON payload type 和 handler。注册会校验 handler 签名，重名或非法函数会 panic，因此应在程序初始化阶段定义 task。
+
+```go
+type EmailPayload struct {
+	UserID   uint64 `json:"user_id"`
+	Template string `json:"template"`
+}
+
+var sendEmail = task.Register("send-email", &task.Config{
+	Handler: func(ctx context.Context, data EmailPayload) error {
+		return mailer.SendTemplate(ctx, data.UserID, data.Template)
+	},
+	Priority:   10,
+	TTR:        60 * time.Second,
+	MaxRetries: 4,
+})
+```
+
+Handler 可以是 `func(context.Context, T) error` 或 `func(T) error`。Payload JSON 会解码为 `T`；panic 会被恢复并作为 handler error。
+
+## 绑定 queue 与发布
+
+`NewWorker` 会把当时已注册的全部 task 绑定到 queue。只负责生产、不会创建 worker 的程序必须显式调用 `SetQueue`：
+
+```go
+sendEmail.SetQueue(q)
+
+err := sendEmail.Publish(ctx, EmailPayload{
+	UserID:   42,
+	Template: "welcome",
+},
+	task.Delay(10*time.Second),
+	task.Priority(5),
+	task.TTR(90*time.Second),
+)
+```
+
+`DelayUntil` 按 wall-clock time 调度，过去时间会变成无 delay。Publish option 只覆盖这一条 job 的注册默认值。
+
+Task name 同时是 queue topic 和持久化协议标识，跨部署必须稳定。Payload 不兼容变更时使用 `send-email-v2` 这类新名称，或让 handler 向后兼容。
+
+## 运行 worker
+
+```go
+worker := task.NewWorkerWithTasks(q, "send-email", "sync-invoice")
+if err := worker.Start(4); err != nil {
+	return err
+}
+defer worker.Stop()
+```
+
+数字控制 worker goroutine 数量，非正值变成 1。每个 worker 最多 reserve 5 秒。`Stop` 会取消 handler context 并等待全部 worker，但忽略 cancellation 的 handler 可能让它无限阻塞。Handler deadline 略短于 job TTR。
+
+Worker 只应创建并启动一次。停止后的 context 已取消，不能 restart。
+
+## 重试行为
+
+Handler 返回 error 后，内置 worker 会比较 job release count 与 `MaxRetries`：
+
+- 重试保持同一 priority，使用 5s、10s、20s 等指数 delay；
+- 耗尽后 job 被 bury；
+- `MaxRetries: 0` 表示第一次失败就 bury；
+- 找不到注册 handler 时 job 被 bury；
+- 成功时 delete job。
+
+`FallbackHandler` 字段已经存在，但当前 worker 实现不会调用它；生产失败处理不能依赖该字段。
+
+## Payload 与依赖设计
+
+- 保存 identifier 和不可变 command data，不保存大 blob 或 live credential。
+- Client 与 repository 通过 handler closure 注入，不放进 context value。
+- 把 decoded payload 视为不可信持久化输入，在 side effect 前校验。
+- 无法自然容忍重复的 side effect 应携带 idempotency key。
+- 在所有旧 job 排空或迁移前保留旧 handler/schema code。
+
+传给 `Publish` 的 context 当前不会传播到 queue storage，因为 `Queue.Put` 拥有自己的 storage context。调用方需要 cancellation 时，应在 publish 前自行检查。

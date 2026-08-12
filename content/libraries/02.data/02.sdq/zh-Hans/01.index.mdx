@@ -1,0 +1,72 @@
+---
+title: sdq
+sidebarTitle: 概览
+description: 支持优先级、TTR 恢复、可插拔调度与存储的嵌入式延迟队列。
+icon: clock
+---
+
+# sdq
+
+`go-slim.dev/sdq` 是受 beanstalkd 启发的嵌入式延迟队列。它按 topic、数字优先级、delay 和 time-to-run（TTR）调度 job，并提供明确的 delete、release、bury、kick 与 touch 操作。
+
+当一个 Go 应用需要本地后台调度、但不想运维独立 broker 时可以使用它。包内包含 memory/SQLite storage、两种 ticker、typed Task API、Prometheus metrics 和管理型 web UI。
+
+<Callout title="交付模型">
+  Reserved work 在实践中是 at-least-once。TTR timeout 或不确定的进程失败
+  都可能让同一逻辑工作再次可见。Handler 应保持幂等，或使用应用层 deduplication key。
+</Callout>
+
+## 安装
+
+```sh
+go get go-slim.dev/sdq
+```
+
+模块当前声明 Go 1.25.4。
+
+## Job 状态机
+
+```text
+Put -> Ready -> Reserve -> Reserved -> Delete
+        ^                       |
+        |---- Release/TTR ------|
+
+Put --delay--> Delayed --time--> Ready
+Reserved --Bury--> Buried --Kick--> Ready
+```
+
+| 值 | 含义 |
+| --- | --- |
+| Topic | 命名调度分区，worker 可以 reserve 一个或多个 topic。 |
+| Priority | Ready job 中数字越小越先被选择。 |
+| Delay | 新 job 或 released job 变成 ready 前的时间。 |
+| TTR | Reserve 后的 lease 窗口，过期会把 job 送回 ready。 |
+
+## 选择 API
+
+| 需求 | API |
+| --- | --- |
+| 完全控制 queue transition | `Queue.Put`、`Reserve` 与 `Job` method |
+| JSON payload 与注册式 typed handler | `x/task` |
+| 测试或进程内易失存储 | `x/memory` |
+| 进程重启后保留 job | `x/sqlite` |
+| 稀疏 delayed schedule | `x/dynsleep` ticker |
+| 大量 deadline 与固定精度 | `x/timewheel` ticker |
+| 运行快照与 job 检查 | `Inspector` |
+| Prometheus collection | `x/metrics` |
+| 管理 HTTP 界面 | 放在应用安全边界后的 `x/webui` |
+
+## 文档导航
+
+- [指南](/zh-Hans/libraries/sdq/guide) 从合法 queue 的启停开始，逐步使用底层 job 和 typed Task API。
+- [进阶](/zh-Hans/libraries/sdq/advanced) 处理 TTR、重试、存储恢复、运维与安全边界。
+- [配置与生命周期](/zh-Hans/libraries/sdq/guide/setup-and-lifecycle) 构造合法 queue，并说明异步恢复与关闭。
+- [队列任务](/zh-Hans/libraries/sdq/guide/jobs) 介绍 publish、reserve、body loading 和状态转换。
+- [Task API](/zh-Hans/libraries/sdq/guide/task-api) 介绍 typed registration、publish option、worker 并发、重试和 schema 演进。
+- [TTR 与失败处理](/zh-Hans/libraries/sdq/advanced/ttr-and-failures) 介绍重复工作、touch limit、retry 与 poison job。
+- [存储与恢复](/zh-Hans/libraries/sdq/advanced/storage-and-recovery) 介绍 memory/SQLite 保证和自定义 storage 契约。
+- [运维](/zh-Hans/libraries/sdq/advanced/operations) 介绍检查、metrics、web UI 安全、容量与关闭顺序。
+
+## 不是 broker 的替代品
+
+sdq 不提供网络队列协议、跨区域复制、跨独立服务 consumer group 或 broker-level multi-tenancy。SQLite durability 仍取决于文件系统位置、备份和进程关闭。系统明确需要这些能力时，应选择外部 broker。

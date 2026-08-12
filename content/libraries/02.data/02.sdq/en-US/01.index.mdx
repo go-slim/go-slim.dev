@@ -1,0 +1,73 @@
+---
+title: sdq
+sidebarTitle: Overview
+description: An embedded delayed queue with priorities, TTR recovery, pluggable scheduling, and storage.
+icon: clock
+---
+
+# sdq
+
+`go-slim.dev/sdq` is an embedded delayed queue inspired by beanstalkd. It schedules jobs by topic, numeric priority, delay, and time-to-run (TTR), with explicit delete, release, bury, kick, and touch operations.
+
+Use it when one Go application needs local background scheduling without operating a separate broker. Memory and SQLite storage, two ticker strategies, a typed Task API, Prometheus metrics, and an administrative web UI are included.
+
+<Callout title="Delivery model">
+  Reserved work is at-least-once in practice. A TTR timeout or uncertain process
+  failure can make the same logical work visible again. Handlers should be
+  idempotent or use an application-level deduplication key.
+</Callout>
+
+## Install
+
+```sh
+go get go-slim.dev/sdq
+```
+
+The module currently declares Go 1.25.4.
+
+## Job state machine
+
+```text
+Put -> Ready -> Reserve -> Reserved -> Delete
+        ^                       |
+        |---- Release/TTR ------|
+
+Put --delay--> Delayed --time--> Ready
+Reserved --Bury--> Buried --Kick--> Ready
+```
+
+| Value | Meaning |
+| --- | --- |
+| Topic | A named scheduling partition; workers reserve one or more topics. |
+| Priority | Lower numeric values are selected first among ready jobs. |
+| Delay | Time before a new or released job becomes ready. |
+| TTR | Lease window after reservation; expiration returns the job to ready. |
+
+## Choose an API
+
+| Need | API |
+| --- | --- |
+| Full control over queue transitions | `Queue.Put`, `Reserve`, and `Job` methods |
+| JSON payloads with registered typed handlers | `x/task` |
+| Volatile test or process-local storage | `x/memory` |
+| Jobs that survive process restarts | `x/sqlite` |
+| Sparse delayed schedules | `x/dynsleep` ticker |
+| Many scheduled deadlines with bounded resolution | `x/timewheel` ticker |
+| Runtime snapshots and job inspection | `Inspector` |
+| Prometheus collection | `x/metrics` |
+| Administrative HTTP interface | `x/webui` behind application security |
+
+## Documentation map
+
+- [Guide](/libraries/sdq/guide) starts with safe queue lifecycle, then introduces low-level jobs and the typed Task API.
+- [Advanced](/libraries/sdq/advanced) covers TTR, retries, recovery, operations, and security boundaries.
+- [Setup and lifecycle](/libraries/sdq/guide/setup-and-lifecycle) builds a valid queue and explains asynchronous recovery and shutdown.
+- [Queue jobs](/libraries/sdq/guide/jobs) covers publish, reserve, body loading, and state transitions.
+- [Task API](/libraries/sdq/guide/task-api) covers typed registration, publishing, worker concurrency, retry, and schema evolution.
+- [TTR and failure handling](/libraries/sdq/advanced/ttr-and-failures) explains duplicate work, touch limits, retry, and poison jobs.
+- [Storage and recovery](/libraries/sdq/advanced/storage-and-recovery) covers memory/SQLite guarantees and custom storage contracts.
+- [Operations](/libraries/sdq/advanced/operations) covers inspection, metrics, web UI security, capacity, and shutdown order.
+
+## Not a broker replacement
+
+sdq does not provide a network queue protocol, cross-region replication, consumer groups across independent services, or broker-level multi-tenancy. SQLite durability still depends on filesystem placement, backups, and process shutdown. Choose an external broker when those are system requirements.
