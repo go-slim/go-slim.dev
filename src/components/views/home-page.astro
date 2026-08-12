@@ -1,0 +1,198 @@
+---
+import { Icon } from 'astro-icon/components'
+import Button from '#components/ui/button/index.astro'
+import Item from '#components/ui/item/index.astro'
+import LibraryIcon from '#components/library-icon.astro'
+import LibraryStatusBadge from '#components/ui/library-status-badge.astro'
+import { getLibraryCatalog } from '#lib/content.ts'
+import { localePrefix, type ContentLocale } from '#lib/content-types.ts'
+import {
+  useTranslations,
+  type TranslationKeyWithoutParameters,
+} from '#i18n/utils.ts'
+
+type Props = {
+  locale: ContentLocale
+}
+
+const { locale } = Astro.props
+const groups = await getLibraryCatalog(locale)
+const t = useTranslations(locale)
+const prefix = localePrefix(locale)
+const count = groups.reduce((total, group) => total + group.items.length, 0)
+
+const descriptionKeys: Record<string, TranslationKeyWithoutParameters> = {
+  web: 'home.catalog.web',
+  data: 'home.catalog.data',
+  tools: 'home.catalog.tools',
+}
+const steps = [
+  ['01', t('home.path.step1.title'), t('home.path.step1.body'), `${prefix}/libraries`],
+  ['02', t('home.path.step2.title'), t('home.path.step2.body'), `${prefix}/libraries/h3`],
+  ['03', t('home.path.step3.title'), t('home.path.step3.body'), `${prefix}/libraries/h3/guide`],
+] as const
+const principles = [
+  t('home.principles.standardInterfaces'),
+  t('home.principles.explicitResponsibility'),
+  t('home.principles.incrementalAdoption'),
+  t('home.principles.documentTradeoffs'),
+]
+---
+
+<main>
+  <section class="relative isolate overflow-hidden border-b border-border px-4 py-24 @[40rem]/app:py-32 @[48rem]/app:px-6 @[64rem]/app:px-8">
+    <div
+      class="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_30%_25%,rgb(196_181_253/35%),transparent_32%),radial-gradient(circle_at_75%_70%,rgb(244_114_182/22%),transparent_30%)] mask-[linear-gradient(to_bottom,black,transparent_90%)] dark:opacity-45"
+      aria-hidden="true"
+    />
+    <div class="relative mx-auto max-w-5xl text-center">
+      <p class="mb-5 text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+        {t('home.eyebrow')}
+      </p>
+      <h1 class="text-page-title text-balance font-semibold tracking-display">
+        {t('home.title')}
+      </h1>
+      <p class="mx-auto mt-6 max-w-2xl text-balance text-lg leading-8 text-muted-foreground">
+        {t('home.description')}
+      </p>
+      <div class="mt-9 flex flex-wrap justify-center gap-3">
+        <Button href={`${prefix}/libraries`} class="group">
+          {t('home.browseLibraries')}
+          <Icon
+            is:inline
+            name="tabler:arrow-right"
+            class="size-4 transition-transform group-hover:translate-x-1"
+            aria-hidden="true"
+          />
+        </Button>
+        <Button href={`${prefix}/libraries/h3`} variant="outline">
+          {t('home.startWithH3')}
+        </Button>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-b border-border bg-muted">
+    <div class="mx-auto max-w-page px-4 py-20 @[40rem]/app:py-24 @[48rem]/app:px-6 @[64rem]/app:px-8">
+      <div class="flex flex-col gap-5 @[40rem]/app:flex-row @[40rem]/app:items-end @[40rem]/app:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+            {t('home.catalog.eyebrow')}
+          </p>
+          <h2 class="mt-4 max-w-2xl text-3xl font-semibold tracking-heading @[40rem]/app:text-4xl">
+            {t('home.catalog.title')}
+          </h2>
+        </div>
+        <a
+          href={`${prefix}/libraries`}
+          class="inline-flex items-center gap-2 font-medium text-primary hover:text-primary-accent"
+        >
+          {t('home.catalog.viewAll', { count })}
+          <Icon is:inline name="tabler:arrow-right" class="size-4" aria-hidden="true" />
+        </a>
+      </div>
+
+      <div class="mt-12 grid gap-5 @[64rem]/app:grid-cols-3">
+        {groups.map((group, index) => (
+          <article class="rounded-xl border border-border bg-card p-6">
+            <div class="flex justify-between text-sm text-muted-foreground">
+              <span class="font-mono">{String(index + 1).padStart(2, '0')}</span>
+              <span>{group.items.length}</span>
+            </div>
+            <h3 class="mt-5 text-2xl font-semibold uppercase">{group.title}</h3>
+            <p class="mt-3 min-h-14 text-sm leading-6 text-muted-foreground">
+              {descriptionKeys[group.id] ? t(descriptionKeys[group.id]) : undefined}
+            </p>
+            <ul class="mt-6 divide-y divide-border border-y border-border">
+              {group.items.map((item) => (
+                <li>
+                  <Item
+                    href={item.href}
+                    title={item.name}
+                    class="group gap-3 py-3 hover:text-primary"
+                    titleClass="truncate font-medium"
+                  >
+                    <Fragment slot="leading">
+                      <LibraryIcon icon={item.icon} class="size-4" />
+                    </Fragment>
+                    <Fragment slot="meta">
+                      <LibraryStatusBadge
+                        status={item.status}
+                        locale={locale}
+                      />
+                    </Fragment>
+                    <Fragment slot="trailing">
+                      <Icon
+                        is:inline
+                        name="tabler:arrow-right"
+                        class="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-1"
+                        aria-hidden="true"
+                      />
+                    </Fragment>
+                  </Item>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-page px-4 py-20 @[40rem]/app:py-24 @[48rem]/app:px-6 @[64rem]/app:px-8">
+    <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+      {t('home.path.eyebrow')}
+    </p>
+    <h2 class="mt-4 text-3xl font-semibold tracking-heading @[40rem]/app:text-4xl">
+      {t('home.path.title')}
+    </h2>
+    <p class="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">
+      {t('home.path.description')}
+    </p>
+    <div class="mt-12 grid gap-5 @[48rem]/app:grid-cols-3">
+      {steps.map(([number, title, body, href]) => (
+        <article class="flex flex-col rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary">
+          <span class="font-mono text-sm text-muted-foreground/60">{number}</span>
+          <h3 class="mt-8 text-xl font-semibold">{title}</h3>
+          <p class="mt-3 flex-1 leading-7 text-muted-foreground">{body}</p>
+          <a
+            href={href}
+            class="mt-8 inline-flex items-center gap-2 text-sm font-medium text-primary"
+          >
+            {t('home.path.continue')}
+            <Icon is:inline name="tabler:arrow-right" class="size-4" aria-hidden="true" />
+          </a>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="border-y border-border bg-muted">
+    <div class="mx-auto grid max-w-page gap-12 px-4 py-20 @[40rem]/app:py-24 @[48rem]/app:px-6 @[64rem]/app:grid-cols-[1fr_1.2fr] @[64rem]/app:px-8">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+          {t('home.principles.eyebrow')}
+        </p>
+        <h2 class="mt-4 text-3xl font-semibold @[40rem]/app:text-4xl">
+          {t('home.principles.title')}
+        </h2>
+        <p class="mt-5 text-lg leading-8 text-muted-foreground">
+          {t('home.principles.description')}
+        </p>
+      </div>
+      <ul class="divide-y divide-border border-y border-border">
+        {principles.map((item) => (
+          <li class="flex items-center gap-3 py-5">
+            <Icon
+              is:inline
+              name="tabler:check"
+              class="size-5 text-primary"
+              aria-hidden="true"
+            />
+            <span class="font-medium">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+</main>
