@@ -1,0 +1,107 @@
+---
+title: 快速开始
+description: 在 net/http Handler 中构建第一条请求绑定流程。
+---
+
+# 快速开始
+
+下面的 Handler 从路径读取组织 ID，从 JSON 请求体读取用户名，并把绑定错误留给统一的 HTTP 边界处理。
+
+## 定义输入结构体
+
+输入结构体应只包含这个端点允许客户端提供的字段：
+
+```go
+type createUserInput struct {
+	OrganizationID uint     `param:"organization_id"`
+	Name           string   `json:"name"`
+	Tags           []string `json:"tags"`
+}
+```
+
+`param` 由 binding 读取；`json` 仍遵循 `encoding/json` 的字段规则。
+
+## 编写 Handler
+
+```go
+func createUser(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var input createUserInput
+	if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+		writeBindingError(w, err)
+		return
+	}
+
+	if input.Name == "" {
+		http.Error(w, "name is required", http.StatusUnprocessableEntity)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(input)
+}
+```
+
+对于 `POST` 请求，`DefaultBinder` 会先绑定路径参数，再绑定请求体；它不会自动绑定 URL 查询参数。这样 body 不会在不经意间与 query 竞争同一字段。
+
+## 注册路由
+
+```go
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"POST /organizations/{organization_id}/users",
+		createUser,
+	)
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: binding.Middleware(mux),
+	}
+	log.Fatal(server.ListenAndServe())
+}
+```
+
+示例安装了 `binding.Middleware`，便于后续复用 query 解析结果和配置 multipart。它不是当前 Handler 读取标准库路由参数的必要条件。
+
+## 映射输入错误
+
+binding 不会写响应。应用可以在一个位置完成分类：
+
+```go
+func writeBindingError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, binding.ErrUnsupportedMediaType) {
+		status = http.StatusUnsupportedMediaType
+	}
+
+	http.Error(w, http.StatusText(status), status)
+}
+```
+
+这里选择了常见的 `400` 和 `415`，但映射规则属于应用，而不是 binding 的固定行为。
+
+## 只读取一个值
+
+如果 Handler 不需要输入结构体，泛型函数更直接：
+
+```go
+func listUsers(w http.ResponseWriter, r *http.Request) {
+	page, err := binding.QueryParamOr(r, "page", 1)
+	if err != nil {
+		writeBindingError(w, err)
+		return
+	}
+
+	// 校验 page，再调用业务逻辑。
+	_ = page
+}
+```
+
+## 下一步
+
+- 输入由多个来源组成时，阅读[结构体绑定](/zh-Hans/libraries/binding/guide/struct-binding)。
+- 只需要几个值时，阅读[强类型取值](/zh-Hans/libraries/binding/guide/typed-values)。
+- 接收 JSON、表单或文件时，阅读[请求体与文件](/zh-Hans/libraries/binding/guide/body-and-files)。

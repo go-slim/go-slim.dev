@@ -1,0 +1,63 @@
+---
+title: CORS
+description: Produce explicit, cache-correct CORS responses for browser cross-origin requests.
+---
+
+# CORS
+
+`CORS` writes cross-origin response headers based on the request `Origin` and handles browser preflights directly.
+
+## Allow explicit origins
+
+```go
+cors := middleware.CORS(
+	"https://app.example.com",
+	"https://admin.example.com",
+)
+
+handler := cors(mux)
+```
+
+Origins match the complete `scheme://host[:port]`, case-insensitively. Configure at least one origin or provide `UnsafeAllowOriginFunc`; otherwise construction panics.
+
+## Full configuration
+
+```go
+cors := middleware.CORSWithConfig(middleware.CORSConfig{
+	AllowOrigins:     []string{"https://app.example.com"},
+	AllowMethods:     []string{http.MethodGet, http.MethodPost},
+	AllowHeaders:     []string{"Authorization", "Content-Type"},
+	ExposeHeaders:    []string{"X-Request-ID"},
+	AllowCredentials: true,
+	MaxAge:           600,
+	ErrorHandler:     writeAPIError,
+})
+```
+
+- `AllowMethods` defaults to GET, HEAD, PUT, PATCH, POST, and DELETE. It is never inferred from the router.
+- With an empty `AllowHeaders`, preflight reflects `Access-Control-Request-Headers`.
+- A zero `MaxAge` omits the header; a negative value sends `0` to disable browser caching.
+- A lone `*` permits any origin but cannot be combined with `AllowCredentials`.
+
+## Preflights and ordinary requests
+
+Only an `OPTIONS` request containing both `Origin` and `Access-Control-Request-Method` is a preflight. Other `OPTIONS` requests continue downstream.
+
+A disallowed ordinary cross-origin request still reaches downstream without `Access-Control-Allow-Origin`, so the browser does not expose its response to script. A disallowed preflight ends with `204`, also without an allowed origin.
+
+## Dynamic origins
+
+```go
+UnsafeAllowOriginFunc: func(
+	r *http.Request, origin string,
+) (string, bool, error) {
+	allowed, err := tenantOrigins.Allows(r.Context(), origin)
+	return origin, allowed, err
+},
+```
+
+`origin` is untrusted input. The returned string is written to the response as-is, and the function may run concurrently. Validate syntax and tenant boundaries strictly. An error is passed to `ErrorHandler` with the recommended status `500`.
+
+<Callout title="CORS is not server-side authorization">
+  CORS only controls whether a browser exposes a response to script. Non-browser clients can still send requests, so the server must authenticate and authorize normally.
+</Callout>

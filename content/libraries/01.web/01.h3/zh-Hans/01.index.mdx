@@ -1,0 +1,110 @@
+---
+title: h3
+sidebarTitle: 概览
+description: 建立在 Go 标准库之上的 HTTP 应用基础库。
+icon: server
+---
+
+# h3
+
+`go-slim.dev/h3` 是建立在 Go 标准库之上的小型 HTTP 应用基础库。它保留 `http.ServeMux` 的路由语法和匹配行为，并补上声明式路由树、中间件组合、生命周期管理、HTTP/HTTPS 启动和最终响应元数据。
+
+<Callout title="为标准库而设计">
+  h3 不替换 `net/http`。路由模式、handler、请求 context、response writer 和中间件都保持标准库语义。
+</Callout>
+
+## 为什么选择 h3？
+
+- 直接使用 Go 1.22+ 的 `http.ServeMux` 路由模式，不引入另一套 handler 抽象。
+- 在启动阶段声明 route tree 和 mount 关系，然后发布不可变的路由快照。
+- 使用标准 `func(http.Handler) http.Handler` 组合 middleware，不改变已有组件的接入方式。
+- 用一个明确的 lifecycle owner 协调 HTTP 服务和后台 servlet 的启动、停止与回滚。
+
+## 选择合适的使用层级
+
+| 场景 | 使用方式 |
+| --- | --- |
+| 已有设施负责 `http.Server` | 使用独立 `Router`；调用 `Build` 后把它当作 `http.Handler`。 |
+| 由 h3 负责 listener 与优雅关闭 | 使用 `App.Start`/`Stop`；如果另有 goroutine 能发起停止，也可以用 `Run` 阻塞等待。 |
+| 模块只拥有 routes | 使用 `Router.Mount` 或普通 `Component`。 |
+| 模块同时拥有 routes 与后台资源 | 让 `Component` 同时实现 `Servlet`。 |
+| 外部 router 需要完整展开的声明 | 使用 `CompileRoutes`；返回的 handlers 已经组合 h3 middleware。 |
+
+## 心智模型
+
+h3 不是 MVC 框架。它更接近 `net/http` 外层的应用外壳：
+
+1. 描述 routes 和 mounted routers。
+2. 组合标准 middleware。
+3. 构建不可变 routing table。
+4. 一起启动 HTTP 和后台 lifecycle 组件。
+5. handler 继续直接拥有请求解析、验证、渲染和领域错误处理。
+
+这个设计适合混合代码库。你可以把 h3 引入已有 `net/http` 服务而不重写 handler；需要时也可以用 `CompileRoutes` 把 h3 的 route 声明交给其他组件。
+
+## 职责边界
+
+h3 只负责 HTTP application shell，不替应用决定输入、输出和业务策略：
+
+| h3 提供 | 应用自行决定 |
+| --- | --- |
+| Route 声明、mount tree 与原子 snapshot 发布 | DTO 设计、输入解析和验证规则 |
+| 标准 middleware 的组合与父子 wrapping | 具体安装哪些认证、安全、限流和观测策略 |
+| Listener、HTTP server 与 servlet lifecycle 编排 | 数据库、队列、worker 等资源怎样初始化和停止 |
+| Routing-layer 404/405 replacement hooks | API error schema 与业务错误到 HTTP status 的映射 |
+| 最终 response status、size、commit state 记录 | JSON、HTML、文件、streaming 等 response representation |
+
+这个边界让 h3 可以嵌入已有 `net/http` 服务。Handler 仍然直接使用 `*http.Request`、`http.ResponseWriter`、`r.Context()` 和任意兼容标准接口的组件。
+
+## h3 不隐藏什么
+
+h3 有意把一些决策留在应用代码里：
+
+| 决策 | 为什么留在应用层 |
+| --- | --- |
+| 请求验证 | 验证规则是领域契约，不是 router 行为。 |
+| 响应渲染 | JSON、HTML、streaming、文件、problem details 需要不同策略。 |
+| 业务错误映射 | 应用决定哪些错误变成 400、404、409 或 500。 |
+| Context 传播 | 标准 `context.Context` 让取消和值保持显式。 |
+| 观测后端 | 日志、tracing、metrics、exporter 会随部署变化。 |
+
+## 可选组合
+
+h3 不依赖下面这些包。它们只是 go-slim 生态中可以按需组合的实现，也可以完全换成标准库或第三方方案：
+
+| 需要 | 可选方案 |
+| --- | --- |
+| 将 path、query、header 或 body 转成输入结构 | [`go-slim.dev/binding`](/zh-Hans/libraries/binding) |
+| 匹配 `Content-Type`、选择可接受的 response representation | [`go-slim.dev/nego`](/zh-Hans/libraries/nego) |
+| 使用现成的标准 `net/http` middleware | [`go-slim.dev/middleware`](/zh-Hans/libraries/middleware) |
+| 记录业务执行过程 | [`go-slim.dev/tracing`](/zh-Hans/libraries/tracing) |
+
+这些是集成建议，不是 h3 的职责或必需依赖。
+
+## 要求
+
+h3 要求 Go 1.25.5 或更高版本。路由模式使用 Go 1.22 引入的 `http.ServeMux` 语法。
+
+```sh
+go get go-slim.dev/h3
+```
+
+它没有 Go 标准库之外的运行时依赖。
+
+## 重要边界
+
+- Router declarations 属于可变配置，不保证并发安全；已经发布的 routing snapshot 可以安全处理并发请求。
+- `App.Start` 非阻塞。它的 context 只控制启动；成功返回后再取消，不会触发关闭。
+- 生命周期调用属于串行 control plane。不要并发执行 `Start`、`Stop`、`Register` 或 route configuration。
+- `App.Stop` 没有 timeout 参数，会等待 HTTP shutdown 和全部 servlet；每个资源应自行提供有界的清理行为。
+- h3 会把 `Servlet.Start`、`Servlet.Stop` 的 panic 转换为 error，但不会替 HTTP handler 做 panic recovery；需要时应显式注册 recovery middleware。
+
+## 文档地图
+
+| 分区 | 用途 |
+| --- | --- |
+| [指南](/zh-Hans/libraries/h3/guide) | 第一个服务、路由、中间件和生命周期基础。 |
+| [进阶](/zh-Hans/libraries/h3/advanced) | Component ownership、route compilation、TLS/server options、response metadata。 |
+| [示例](/zh-Hans/libraries/h3/examples) | 可复制的 JSON API、component 和 access log 应用形态。 |
+
+[从指南开始](/zh-Hans/libraries/h3/guide)。

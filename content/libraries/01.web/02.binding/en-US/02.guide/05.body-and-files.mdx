@@ -1,0 +1,126 @@
+---
+title: Bodies and files
+description: Handle JSON, XML, forms, and multipart files while controlling resources.
+---
+
+# Bodies and files
+
+`BindBody` selects behavior from the base value of the request `Content-Type`.
+
+| Content-Type | Behavior |
+| --- | --- |
+| `application/json` | Read the complete body, then use `encoding/json` |
+| `application/xml` | Use `encoding/xml.Decoder` |
+| `text/xml` | Use `encoding/xml.Decoder` |
+| `application/x-www-form-urlencoded` | Standard form parsing and `form` tags |
+| `multipart/form-data` | Standard multipart parsing, fields, and files |
+
+Parameters such as `charset` and multipart boundary do not affect selection. Other media types return `ErrUnsupportedMediaType`.
+
+When `ContentLength` is exactly `0`, `BindBody` treats the request as bodyless and returns before checking `Content-Type`.
+
+## JSON
+
+```go
+type createInput struct {
+	Name string   `json:"name"`
+	Tags []string `json:"tags"`
+}
+
+var input createInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+The JSON implementation reads the complete request body into memory before calling `json.Unmarshal`; it imposes no size limit. Limit untrusted input before binding:
+
+```go
+r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+```
+
+## XML
+
+```go
+type createInput struct {
+	Name string `xml:"name"`
+}
+
+var input createInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+XML uses a streaming `xml.Decoder`. Both JSON and XML consume `Request.Body`; do not bind them a second time unless the caller buffers and replaces the body.
+
+## URL-encoded forms
+
+```go
+type loginInput struct {
+	Email    string `form:"email"`
+	Password string `form:"password"`
+}
+```
+
+Non-multipart forms retain `http.Request.ParseForm` semantics. For `POST`, `PUT`, and `PATCH`, `r.Form` combines URL query and body form values, with body values taking precedence.
+
+A `form` tag therefore does not mean “body only.” If policy requires a field to come exclusively from the body, enforce that source boundary in the application.
+
+## Multipart files
+
+```go
+type uploadInput struct {
+	Title  string                  `form:"title"`
+	Avatar *multipart.FileHeader   `form:"avatar"`
+	Files  []*multipart.FileHeader `form:"files"`
+}
+
+var input uploadInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+Supported file field types are:
+
+```go
+*multipart.FileHeader
+[]multipart.FileHeader
+[]*multipart.FileHeader
+```
+
+A plain `multipart.FileHeader` value is rejected because its zero value cannot distinguish an absent upload. Use a pointer for one file and a slice for repeated files.
+
+## A memory threshold is not an upload limit
+
+`MiddlewareConfig.FormParseMaxMemory` controls how many multipart file bytes remain in memory before the standard library uses temporary files. The default is 32 MiB.
+
+It does not limit total request size. Upload endpoints still need a hard body limit and checks for file count, per-file size, content, and downstream storage capacity:
+
+```go
+handler := binding.MiddlewareWithConfig(binding.MiddlewareConfig{
+	FormParseMaxMemory: 8 << 20,
+})(mux)
+```
+
+```go
+func upload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	// Then call BindBody.
+}
+```
+
+## Content-Type matching
+
+Most handlers can call `BindBody` directly. If application logic must inspect a type first, use `go-slim.dev/nego`:
+
+```go
+kind, err := nego.TypeIs(
+	r.Header.Get(nego.HeaderContentType),
+	"json",
+	"xml",
+)
+```
+
+binding itself does not export `TypeIs`.

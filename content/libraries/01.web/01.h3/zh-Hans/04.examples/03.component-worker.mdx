@@ -1,0 +1,115 @@
+---
+title: Component worker
+description: 挂载 component，并让 app 管理 worker 生命周期。
+---
+
+# Component worker
+
+当 routes 和后台工作属于同一个模块时，使用 component。
+
+<Callout title="每轮生命周期都必须独立">
+  示例不会使用永久的 `sync.Once`：它虽然能避免第一轮 double-close，却无法关闭重新启动后创建的新 channel。这里为每轮运行创建独立 channel，并在 `Stop` 返回前等待 worker 退出。
+</Callout>
+
+```go
+package worker
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"sync"
+	"time"
+
+	"go-slim.dev/h3"
+)
+
+type workerComponent struct {
+	h3.Component
+	lifecycle sync.Mutex
+	done      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func newWorkerComponent() *workerComponent {
+	c := &workerComponent{
+		Component: h3.NewComponent("/workers"),
+	}
+	c.Router().HandleFunc("GET /status", c.status)
+	return c
+}
+
+func (c *workerComponent) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.done != nil {
+		return errors.New("worker is already started")
+	}
+
+	done := make(chan struct{})
+	c.done = done
+	c.wg.Add(1)
+	// Start context 只控制启动检查和回滚。
+	// 运行期关闭使用本轮自己拥有的 channel。
+	go func() {
+		defer c.wg.Done()
+		c.loop(done)
+	}()
+	return nil
+}
+
+func (c *workerComponent) Stop() error {
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.done == nil {
+		return nil
+	}
+
+	close(c.done)
+	c.wg.Wait()
+	c.done = nil
+	return nil
+}
+
+func (c *workerComponent) status(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte("running"))
+}
+
+func (c *workerComponent) loop(done <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			// poll or process background work
+		}
+	}
+}
+```
+
+在 app 停止时注册 component：
+
+```go
+app := h3.New(h3.Options{Addr: ":8080"})
+app.Register(newWorkerComponent())
+```
+
+route 挂载到 `/workers/status`，worker 随 app 启动和停止。
+
+这里故意不把 `Start` context 传给 `loop`。App shutdown 会调用 `Stop`，由 `Stop` 关闭本轮专属 channel。Mutex 保护 lifecycle state，重复 `Stop` 会看到 nil，`WaitGroup` 则保证 cleanup 返回后没有残留 worker。
+
+Package-level 或永久 `sync.Once` 只能保证第一轮安全。h3 允许同一个 app 在 `Stop` 后再次启动；第二轮时 once 已不能关闭新 channel。逐轮状态可以同时避免 double-close panic 和 restart leak。
+
+## Ownership 规则
+
+- 启动 goroutine 前完成 context-aware dependency checks。
+- `Start` 获取资源后如果要返回 error，应先释放该资源；h3 只会对 `Start` 已成功完成的 servlet 调用 rollback `Stop`。
+- `Stop` 应 signal、wait 并释放 component 拥有的每项资源。
+- Lifecycle 调用保持串行。Mutex 让意外的重复 cleanup 安全，但不代表可以并发执行 app `Start` 和 `Stop`。

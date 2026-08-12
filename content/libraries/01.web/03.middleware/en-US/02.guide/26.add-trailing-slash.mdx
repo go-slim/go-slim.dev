@@ -1,0 +1,30 @@
+---
+title: AddTrailingSlash
+description: Add a trailing slash to non-root paths before routing.
+---
+
+# AddTrailingSlash
+
+`AddTrailingSlash` adds `/` to a path that lacks it. By default it mutates `URL.Path` and `RequestURI`, then calls downstream without a client round trip.
+
+```go
+// /documents?sort=new -> /documents/?sort=new
+handler := middleware.AddTrailingSlash()(mux)
+```
+
+The root path `/` stays unchanged, and query strings are preserved. Place the middleware outside the router so matching sees the normalized path.
+
+## Send a redirect
+
+```go
+addSlash := middleware.AddTrailingSlashWithConfig(
+	middleware.AddTrailingSlashConfig{
+		RedirectCode: http.StatusPermanentRedirect,
+		Skipper:      skipFilePaths,
+	},
+)
+```
+
+A zero `RedirectCode` means internal forwarding. A value from 300 through 308 sends an external redirect; anything outside the range panics during construction. Redirect targets sanitize initial double slashes and backslashes to prevent open redirects.
+
+Do not enable `RemoveTrailingSlash` at the same time. Also disable any opposite normalization in the router or upstream, or requests will loop.

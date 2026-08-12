@@ -1,0 +1,46 @@
+---
+title: RequestID
+description: 复用或生成请求 ID，并在请求与响应 Header 中传播。
+---
+
+# RequestID
+
+`RequestID` 读取 `X-Request-ID`。如果客户端没有提供，就生成一个 32 字符随机值；解析后的 ID 会在调用下游前同时写入请求和响应 Header。
+
+```go
+handler := middleware.RequestID()(mux)
+```
+
+把它放在 `RequestLogger` 外层，logger 才能稳定记录该值：
+
+```go
+handler := middleware.RequestID()(
+	middleware.RequestLogger()(mux),
+)
+```
+
+## 自定义 Header 与生成器
+
+```go
+requestID := middleware.RequestIDWithConfig(middleware.RequestIDConfig{
+	TargetHeader: "Trace-ID",
+	Generator: func() string {
+		return uuid.NewString()
+	},
+	RequestIDHandler: func(r *http.Request, id string) {
+		slog.Debug("request accepted", "request_id", id)
+	},
+})
+```
+
+`Generator` 只在 Header 为空时调用。`RequestIDHandler` 在 ID 确定且响应 Header 设置完毕后、下游执行前调用，并可能被并发调用。
+
+`RequestLogger` 的 `LogRequestID` 读取标准 `X-Request-ID`。若这里改用自定义 Header，请在 logger 中通过 `LogHeaders` 选取它，或在自定义 logging callback 中读取。
+
+## 信任客户端 ID
+
+middleware 会原样复用已有值，不校验长度或格式。公网入口应由可信边缘移除不合规的 ID，或在 `RequestID` 前增加验证/替换逻辑，避免日志注入、超长字段和跨租户关联。
+
+<Callout title="Request ID 不是 Trace ID">
+  它适合日志关联，但不实现分布式 tracing 的采样、parent/span 关系或标准传播格式。需要 tracing 时仍应使用对应协议与 SDK。
+</Callout>

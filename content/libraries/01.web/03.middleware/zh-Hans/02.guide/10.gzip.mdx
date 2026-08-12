@@ -1,0 +1,42 @@
+---
+title: Gzip
+description: 根据 Accept-Encoding 协商并压缩 HTTP 响应。
+---
+
+# Gzip
+
+`Gzip` 使用 `Accept-Encoding` 协商响应压缩。客户端接受 gzip 时，middleware 写入 `Content-Encoding: gzip`，维护 `Vary: Accept-Encoding`，并移除不再准确的 `Content-Length`。
+
+```go
+handler := middleware.Gzip()(mux)
+```
+
+## 压缩等级与阈值
+
+```go
+gzipResponse := middleware.GzipWithConfig(middleware.GzipConfig{
+	Level:     gzip.BestSpeed,
+	MinLength: 1024,
+	Skipper:   skipStreamingOrEncoded,
+})
+```
+
+- `Level` 默认为 `gzip.DefaultCompression`（`-1`），允许范围为 `-2` 到 `9`；超出范围会在构造时 panic。
+- `MinLength` 默认为 `0`。设置阈值后，较短响应会以未压缩形式写出；负值会归一为零。
+- 在达到阈值前调用 `Flush` 会立即选择 gzip，因为 middleware 无法再等待完整大小。
+
+## 选择要压缩的响应
+
+`Gzip` 不按内容类型自动排除响应。应使用 `Skipper` 跳过已经压缩的图片、归档文件、已有 `Content-Encoding` 的资源，以及延迟敏感的 SSE/流式端点。
+
+```go
+func skipStreamingOrEncoded(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/events/")
+}
+```
+
+如果静态资源由 CDN 或反向代理预压缩，通常让边缘层负责内容编码更简单，也更容易缓存变体。
+
+<Callout title="压缩会消耗 CPU">
+  不要只追求最小字节数。根据典型 payload、吞吐量和延迟测试压缩等级与阈值。
+</Callout>

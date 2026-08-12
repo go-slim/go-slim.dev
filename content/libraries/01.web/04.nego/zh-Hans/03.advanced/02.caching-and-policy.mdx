@@ -1,0 +1,83 @@
+---
+title: 缓存与应用策略
+description: 安全复用 negotiator，并把协商结果连接到 HTTP 响应策略。
+---
+
+# 缓存与应用策略
+
+`Negotiator` 应由所有 handler 共享。它缓存解析后的 `Accept` range；charset、encoding 和 language field 使用各自的小型 parser。
+
+```go
+var negotiator = nego.New(128)
+```
+
+Capacity 限制不同 header value 的缓存数量，不限制并发请求。非正 capacity 使用默认值 10。淘汰采用 least-frequently-used，缓存策略不会改变匹配结果。
+
+`Slice` 可以并发使用，返回包含 parameter map 在内的 deep copy。调用方可以检查或修改结果，而不会破坏 cache state：
+
+```go
+ranges := negotiator.Slice(r.Header.Get(nego.HeaderAccept))
+for _, item := range ranges {
+	log.Printf("%s/%s q=%g", item.Type, item.Subtype, item.Quality)
+}
+```
+
+只有需要检查或复用已解析 range 时才直接使用 `AcceptSlice.Negotiate`；多数 handler 应使用 `Accepts` 或 `Type`。
+
+## 设置 Vary
+
+可缓存的协商响应必须列出每个可能改变表示的 request field：
+
+```go
+w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+w.Header().Add(nego.HeaderVary, nego.HeaderAcceptLanguage)
+w.Header().Add(nego.HeaderVary, nego.HeaderAcceptEncoding)
+```
+
+`nego` 从不修改 response header。只添加实际参与的 field，但不能漏掉任何会改变字节或响应 metadata 的 field。缺失 `Vary` 可能让共享 cache 把错误 media type、language 或 coding 发给其他客户端。
+
+## 映射协议结果
+
+应区分这些结果：
+
+| 结果 | 常见应用策略 |
+| --- | --- |
+| 非法 request `Content-Type` | 根据 endpoint 契约返回 400 或 415 |
+| 合法但不支持的请求类型 | 415 Unsupported Media Type |
+| 没有可接受响应 offer | 406 Not Acceptable，或明确记录的 fallback |
+| 非法服务端 offer | 500，并记录部署诊断 |
+| 可选 preference field 缺失 | 使用第一个服务端 offer |
+
+包刻意不选择这些状态码，因为 route contract 并不相同。
+
+## 完整响应流程
+
+```go
+func getDocument(w http.ResponseWriter, r *http.Request) {
+	kind, err := negotiator.Type(r, "json", "xml")
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError)
+		return
+	}
+	if kind == "" {
+		writeProblem(w, http.StatusNotAcceptable)
+		return
+	}
+
+	w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+	switch kind {
+	case "json":
+		w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationJSONCharsetUTF8)
+		_ = json.NewEncoder(w).Encode(loadDocument(r))
+	case "xml":
+		w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationXMLCharsetUTF8)
+		_ = xml.NewEncoder(w).Encode(loadDocument(r))
+	}
+}
+```
+
+必须在写 status 或 body 前设置表示 header。如果 encoding 或 rendering 可能在部分输出后失败，应先缓冲一个大小受控的表示，或采用能够报告 stream failure 的响应策略。
+
+## 安全与资源限制
+
+Header negotiation 不会限制 request body 或 response generation。应在 server/proxy 设置独立 header limit，在解码前限制 body，并对可能显著膨胀的表示设置输出限制。记录原始 preference field 前也要限制长度。

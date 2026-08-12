@@ -1,0 +1,114 @@
+---
+title: JSON API
+description: 用 h3、binding、nego 和标准 middleware 构建小型 JSON API。
+---
+
+# JSON API
+
+这个示例组合 h3 routing、请求 binding 和显式 JSON error responses。
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"go-slim.dev/binding"
+	"go-slim.dev/h3"
+	"go-slim.dev/nego"
+)
+
+type createUserInput struct {
+	Name string `json:"name"`
+}
+
+func main() {
+	router := h3.NewRouter()
+	router.HandleFunc("POST /users", createUser)
+
+	app := h3.New(h3.Options{
+		Addr:             ":8080",
+		Router:           router,
+		NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+		MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+	})
+
+	if err := app.Start(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	shutdown, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+	<-shutdown.Done()
+
+	if err := app.Stop(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) {
+	kind, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json")
+	if err != nil || kind == "" {
+		jsonError(http.StatusUnsupportedMediaType, "UnsupportedMediaType").ServeHTTP(w, r)
+		return
+	}
+
+	var input createUserInput
+	if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+		switch {
+		case errors.Is(err, binding.ErrUnsupportedMediaType):
+			jsonError(http.StatusUnsupportedMediaType, "UnsupportedMediaType").ServeHTTP(w, r)
+		default:
+			jsonError(http.StatusBadRequest, "BadRequest").ServeHTTP(w, r)
+		}
+		return
+	}
+
+	if input.Name == "" {
+		jsonError(http.StatusBadRequest, "NameRequired").ServeHTTP(w, r)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"name": input.Name,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func jsonError(status int, code string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, status, map[string]any{
+			"ok":   false,
+			"code": code,
+		})
+	})
+}
+```
+
+## 说明
+
+- h3 拥有 routing 和 lifecycle。
+- `binding` 拥有输入解析。
+- `nego` 显式声明 request content-type 契约。
+- handler 拥有 validation 和业务错误映射。
+- response shape 仍由应用定义。
+- 两个 route fallback 都使用 API response shape；h3 会在 405 response 中保留 `Allow` header。
+- Signal context 没有传给 `Start`，而是转换成显式 `Stop`，由它拥有运行期关闭。
+- 绑定不可信输入前应增加 request body limit；server header limits 不会限制 request body。
+- `writeJSON` 提交 status 后，后续 encoder error 已经不能映射为其他 HTTP status，应按应用策略记录这类 transport error。

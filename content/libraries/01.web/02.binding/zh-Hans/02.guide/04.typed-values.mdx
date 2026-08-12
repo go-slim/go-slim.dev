@@ -1,0 +1,146 @@
+---
+title: 强类型取值
+description: 根据场景选择泛型函数或 Fluent API 读取具体类型的请求值。
+---
+
+# 强类型取值
+
+字段不多时，不必先定义结构体。binding 提供返回具体类型的泛型函数，也提供把同一来源连续写入多个变量的 Fluent API。
+
+## 泛型函数
+
+```go
+id, err := binding.PathParam[uint](r, "id")
+page, err := binding.QueryParamOr(r, "page", 1)
+tags, err := binding.QueryParams[string](r, "tag")
+priority, err := binding.FormValueOr(r, "priority", 0)
+```
+
+| 来源 | 单值 | 多值 |
+| --- | --- | --- |
+| 路径 | `PathParam`、`PathParamOr` | — |
+| Query | `QueryParam`、`QueryParamOr` | `QueryParams`、`QueryParamsOr` |
+| Form | `FormValue`、`FormValueOr` | `FormValues`、`FormValuesOr` |
+
+## 缺失、空值与无效值
+
+这三种输入状态有意保持区别：
+
+| 输入状态 | 必填函数 | `Or` 函数 |
+| --- | --- | --- |
+| 键不存在 | 类型零值与 `ErrNonExistentKey` | 调用方提供的默认值 |
+| 单值为空字符串 | 类型零值，无错误 | 调用方提供的默认值 |
+| 无法转换 | `*FieldError` | `*FieldError` |
+
+空字符串不是“必填”的同义词。业务上必须非空或大于零时，需要在转换后单独校验。
+
+## 支持的类型
+
+泛型解析支持：
+
+- `string`、`bool`；
+- 所有有符号和无符号整数类型；
+- `float32`、`float64`；
+- `time.Duration`、`time.Time`；
+- `BindUnmarshaler`、`encoding.TextUnmarshaler`、`json.Unmarshaler`。
+
+也可以脱离 HTTP 单独复用转换层：
+
+```go
+timeout, err := binding.ParseValue[time.Duration]("750ms")
+ids, err := binding.ParseValues[int64]([]string{"10", "20"})
+```
+
+## 时间
+
+`time.Time` 默认按 `time.RFC3339Nano` 解析，并以 UTC 为默认位置。可传入布局或 `TimeOpts`：
+
+```go
+date, err := binding.QueryParam[time.Time](
+	r,
+	"date",
+	binding.TimeLayout("2006-01-02"),
+)
+
+createdAt, err := binding.QueryParam[time.Time](
+	r,
+	"created_at",
+	binding.TimeLayoutUnixTimeMilli,
+)
+```
+
+Unix 时间还支持秒和纳秒布局。`ParseInLocation` 控制无时区布局的解析位置，`ToInLocation` 控制结果转换到的位置。时间选项用于其他目标类型时会返回错误。
+
+## Fluent API
+
+需要从同一个来源连续读取多个字段时，使用 `ValueBinder`：
+
+```go
+var (
+	page   = 1
+	limit  = 20
+	tags   []string
+	active bool
+)
+
+err := binding.QueryParamsBinder(r).
+	Int("page", &page).
+	Int("limit", &limit).
+	Strings("tag", &tags).
+	Bool("active", &active).
+	BindError()
+```
+
+入口有三个：
+
+```go
+binding.PathValuesBinder(r)
+binding.QueryParamsBinder(r)
+binding.FormFieldBinder(r)
+```
+
+普通单值方法是可选绑定：值不存在或第一个值为空时，目标保持原值。`Must` 前缀要求值存在且非空：
+
+```go
+err := binding.PathValuesBinder(r).
+	MustUint("user_id", &userID).
+	BindError()
+```
+
+复数方法读取同名键的全部值，例如 `Ints`、`Strings`、`Durations`。`Must...s` 要求至少出现一个值。
+
+## 快速失败或收集全部错误
+
+链式绑定默认在第一个错误后停止。要同时收集多个字段错误，必须先关闭快速失败：
+
+```go
+binder := binding.QueryParamsBinder(r).
+	FailFast(false).
+	MustInt("page", &page).
+	MustInt("limit", &limit)
+
+if errs := binder.BindErrors(); len(errs) != 0 {
+	// 转换为应用自己的字段错误格式。
+}
+```
+
+`BindError` 返回第一个错误，`BindErrors` 返回全部错误；两者都会清空 binder 内部保存的错误。
+
+## 分隔值与自定义转换
+
+同一个参数既可以重复出现，也可以包含分隔符：
+
+```go
+var ids []int64
+err := binding.QueryParamsBinder(r).
+	MustBindWithDelimiter("id", &ids, ",").
+	BindError()
+```
+
+`?id=1,2&id=3` 会得到 `[]int64{1, 2, 3}`。还可以使用 `BindUnmarshaler`、`TextUnmarshaler`、`JSONUnmarshaler` 或 `CustomFunc` 实现自定义转换。
+
+<Callout type="warning" title="FormFieldBinder 的解析错误不可见">
+  `FormFieldBinder` 的 getter 在表单解析失败时只能返回空值。如果 Handler
+  必须区分“字段缺失”和“表单无法解析”，请使用 `FormValue`、`FormValues`
+  或 `BindBody`。
+</Callout>

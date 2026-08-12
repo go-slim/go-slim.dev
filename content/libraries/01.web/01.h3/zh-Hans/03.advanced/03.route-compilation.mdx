@@ -1,0 +1,66 @@
+---
+title: Route compilation
+description: 理解不可变 route snapshots、替换规则和 CompileRoutes。
+---
+
+# Route compilation
+
+h3 将可变配置和服务请求分离。构建应用时 route declarations 是可变的；`Build` 发布 immutable serving snapshot，`CompileRoutes` 则把展开后的 declarations 交给需要自行构建 snapshot 的调用方。
+
+## Build snapshots
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /users", users)
+router.Build()
+```
+
+`Build` 会把完整 tree 编译成新的 `http.ServeMux` 并原子发布。已经使用旧 snapshot 的请求继续使用旧 snapshot。
+
+这个设计避免了每个请求都加锁，也让 route-table 变更保持显式。
+
+对正在构建的 root 来说，发布是 all-or-nothing。h3 会先构造 replacement mux；如果 pattern 非法或冲突导致 `ServeMux.Handle` panic，pointer 不会交换，旧 snapshot 继续有效。
+
+只有 root router 会获得发布后的 mux。Mounted child declarations 会递归复制进 root snapshot，但 child 自己的 `ServeHTTP` view 不会变化，除非另外 build child。
+
+## 替换规则
+
+| Declaration | 替换规则 |
+| --- | --- |
+| `Handle` / `HandleFunc` | 相同 pattern string 替换前一个 handler。 |
+| `Mount` | 相同 normalized prefix 替换前一个 child router。 |
+| 冲突的 ServeMux patterns | 在 `Build` 时检测；build panic，且不会替换已发布 snapshot。 |
+
+Mount prefix 会规范化为 path。`/api` 和 `/api/` 是同一个 prefix。
+
+替换规则基于完全相同的 declaration key。两个不同字符串如果描述了冲突的 ServeMux patterns，并不会互相替换；它们会同时保留并在 build 时 panic。
+
+## 使用 CompileRoutes
+
+`CompileRoutes` 返回最终 route declarations，其中 mount prefix 已展开，middleware 已组合：
+
+```go
+routes := router.CompileRoutes()
+for _, route := range routes {
+	externalMux.Handle(route.Pattern, route.Handler)
+}
+```
+
+只有当其他设施需要 h3 的最终声明时才使用它。多数应用直接调用 `Build`，或让 `App.Start` 构建 router。
+
+每次调用都会递归展开，并为每条最终 route 调用一次 middleware factories。返回的 handlers 已经可以直接注册，不依赖 router 后续发布的 mux。再次调用 `CompileRoutes` 会产生新 chains，它不是对 cached compilation 的读取。
+
+`CompileRoutes` 本身不会完成全部 ServeMux conflict validation。校验发生在 patterns 被传给 `http.ServeMux.Handle` 时——可能是在 `Build` 内，也可能是在外部 mux 中。
+
+## 顺序
+
+compiled route order 不是稳定 API，因为声明存储在 maps 中。不要依赖迭代顺序决定行为。`http.ServeMux` 根据自己的 pattern 规则选择匹配，而不是注册顺序。
+
+## 安全重建流程
+
+1. 停止所有 configuration writers。
+2. 对完整 tree 应用 route、mount 和 middleware changes。
+3. 对实际服务请求的 root 调用 `Build`。
+4. 把 panic 当作配置失败；不要 recover 后假设新 declarations 已经发布。
+
+第 3 步期间可以继续服务请求，因为 readers 会一直使用旧的 immutable snapshot，直到发布完成。这不代表第 1、2 步的并发修改是安全的。

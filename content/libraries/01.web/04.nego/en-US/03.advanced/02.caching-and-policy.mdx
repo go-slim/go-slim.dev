@@ -1,0 +1,83 @@
+---
+title: Caching and application policy
+description: Reuse negotiators safely and connect negotiation results to HTTP response policy.
+---
+
+# Caching and application policy
+
+`Negotiator` is designed to be shared by all handlers. It caches parsed `Accept` ranges, while charset, encoding, and language fields use their own small parsers.
+
+```go
+var negotiator = nego.New(128)
+```
+
+Capacity bounds distinct cached header values, not concurrent requests. Non-positive capacity selects the package default of 10. Eviction is least-frequently-used; cache policy does not change matching results.
+
+`Slice` is safe for concurrent use and returns a deep copy, including parameter maps. Callers may inspect or modify the returned value without corrupting cached state:
+
+```go
+ranges := negotiator.Slice(r.Header.Get(nego.HeaderAccept))
+for _, item := range ranges {
+	log.Printf("%s/%s q=%g", item.Type, item.Subtype, item.Quality)
+}
+```
+
+Use `AcceptSlice.Negotiate` directly only when parsed ranges need to be inspected or reused. Most handlers should use `Accepts` or `Type`.
+
+## Set Vary
+
+Negotiated cacheable responses must identify every request field that can change the representation:
+
+```go
+w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+w.Header().Add(nego.HeaderVary, nego.HeaderAcceptLanguage)
+w.Header().Add(nego.HeaderVary, nego.HeaderAcceptEncoding)
+```
+
+`nego` never changes response headers. Add only fields that actually participated, but never omit one that affects bytes or response metadata. A missing `Vary` can let a shared cache serve the wrong media type, language, or coding to another client.
+
+## Map protocol results
+
+Keep these outcomes distinct:
+
+| Outcome | Typical application policy |
+| --- | --- |
+| Invalid inbound `Content-Type` | 400 or 415, depending on endpoint contract |
+| Valid but unsupported inbound type | 415 Unsupported Media Type |
+| No acceptable response offer | 406 Not Acceptable, or an explicitly documented fallback |
+| Invalid server offer | 500 and deployment diagnostics |
+| Missing optional preference field | Use the first server offer |
+
+The package intentionally does not choose these statuses because route contracts differ.
+
+## Complete response flow
+
+```go
+func getDocument(w http.ResponseWriter, r *http.Request) {
+	kind, err := negotiator.Type(r, "json", "xml")
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError)
+		return
+	}
+	if kind == "" {
+		writeProblem(w, http.StatusNotAcceptable)
+		return
+	}
+
+	w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+	switch kind {
+	case "json":
+		w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationJSONCharsetUTF8)
+		_ = json.NewEncoder(w).Encode(loadDocument(r))
+	case "xml":
+		w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationXMLCharsetUTF8)
+		_ = xml.NewEncoder(w).Encode(loadDocument(r))
+	}
+}
+```
+
+Set representation headers before writing the status or body. If encoding or rendering can fail after partial output, buffer an appropriately bounded representation first or use a response strategy that can report streaming failures.
+
+## Security and resource limits
+
+Header negotiation does not bound request bodies or response generation. Apply independent header limits at the server/proxy, body limits before decoding, and output limits where representations can expand significantly. Avoid logging raw preference fields without length limits.

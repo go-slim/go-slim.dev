@@ -1,0 +1,17 @@
+---
+title: Advanced
+description: Define error contracts and reason about request-scoped state and resources.
+---
+
+# Advanced
+
+These chapters cover the boundaries that matter after basic conversion works: which failures are public, which state belongs to one request, and which resources the application must limit.
+
+## Topics
+
+- [Errors and validation](/libraries/binding/advanced/errors-and-validation) explains error classification, `FieldError`, response mapping, and the boundary between conversion and business validation.
+- [Request lifecycle](/libraries/binding/advanced/middleware) explains optional Middleware, manually added path values, query caching, multipart memory, repeated reads, and concurrency.
+
+## Before production
+
+Use a dedicated input type, limit untrusted bodies before decoding, keep error rendering in one HTTP boundary, and bind JSON or XML only once per request.

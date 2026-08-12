@@ -1,0 +1,34 @@
+---
+title: HTTPSWWWRedirect
+description: 把请求统一到 HTTPS 与 www host。
+---
+
+# HTTPSWWWRedirect
+
+`HTTPSWWWRedirect` 同时规范 scheme 和 host：目标总是 HTTPS，并保证 host 带有 `www.` 前缀。
+
+```go
+handler := middleware.HTTPSWWWRedirect()(mux)
+```
+
+| 输入 | 结果 |
+| --- | --- |
+| `http://example.com/docs` | `https://www.example.com/docs` |
+| `https://example.com/docs` | `https://www.example.com/docs` |
+| `http://www.example.com/docs` | `https://www.example.com/docs` |
+
+已经满足两个条件的请求进入下游。`RequestURI` 会完整保留，因此 query string 不丢失。
+
+## 自定义 redirect
+
+```go
+redirect := middleware.HTTPSWWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code: http.StatusPermanentRedirect,
+	},
+)
+```
+
+默认使用 301；配置值必须在 300 到 308 之间。对非 GET 请求，优先根据客户端兼容性选择会保留方法和 body 的 307/308。
+
+scheme 判断可能读取代理 forwarding header。只信任由边缘清洗并重建的值。若 canonical host 不使用 `www.`，请改用 `HTTPSNonWWWRedirect`。

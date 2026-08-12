@@ -1,0 +1,47 @@
+title: h3
+description:
+  en-US: A lightweight, high-performance Go HTTP framework built on Go 1.22+ routing.
+  zh-Hans: 基于 Go 1.22+ 增强路由能力构建的轻量、高性能 HTTP 框架。
+icon: icons/route.svg
+llms:
+  repository: go-slim/h3
+  skillDescription: H3 is a Go HTTP framework built on the standard library.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    app: "拥有路由、组件、生命周期和服务入口的 h3 应用实例。"
+    servlet: "由 h3 管理生命周期并挂载为 HTTP handler 的服务单元。"
+    servlets: "由 h3 管理生命周期并挂载为 HTTP handler 的服务单元集合。"
+    component: "由应用持有并通过生命周期钩子协作的可注册组件。"
+    Components: "由应用持有并通过生命周期钩子协作的可注册组件集合。"
+    lifecycle: "资源从初始化、启动到停止和清理的生命周期。"
+    Lifecycle: "资源从初始化、启动到停止和清理的生命周期。"
+    snapshot: "构建完成后发布、供并发请求只读使用的不可变状态快照。"
+    "mount prefix": "子路由器挂载到父路由树时统一添加的路径前缀。"
+    "Mount prefix": "子路由器挂载到父路由树时统一添加的路径前缀。"
+    "route tree": "按父子关系组织路由声明与挂载关系的树。"
+    "panic recovery": "捕获 handler panic 并将其转为受控错误响应的机制。"
+    "HTTP shutdown": "停止接收新连接并等待现有 HTTP 请求结束的优雅关闭过程。"
+    "access log": "记录每个请求及其响应状态、耗时等信息的访问日志。"
+    "response metadata": "状态码、头字段、正文大小等响应侧元数据。"
+    wrapper: "包装底层接口以记录状态或附加行为的适配对象。"
+    hijack: "从 HTTP server 接管底层网络连接并自行处理协议的操作。"
+    worker: "由 component 启动并在生命周期内持续执行后台工作的 goroutine。"
+    "routing layer": "负责声明、编译并匹配路由的 HTTP 基础层。"
+    "routing-layer": "负责声明、编译并匹配路由的 HTTP 基础层。"
+    ownership: "明确哪个组件负责创建、启动、停止和释放某项资源。"
+    owner: "对资源生命周期负最终责任的组件。"
+    prefix: "统一添加在一组子路由之前的路径片段。"
+    mux: "multiplexer，根据请求选择目标 handler 的多路复用器。"
+    ServeMux: "Go 标准库提供的 HTTP 请求多路复用器。"
+    channel: "Go goroutine 之间传递值和同步事件的类型化通道。"
+    signal: "通知进程停止、重载或发生系统事件的操作系统信号。"
+    "commit state": "响应头或正文是否已经开始写向客户端的提交状态。"
+    "single-writer": "同一资源在任一时刻只允许一个写入者的并发约束。"
+    "type assertion": "从 Go 接口值检查并取出具体动态类型的操作。"
+    rollback: "失败时撤销同一事务内已完成更改的回滚过程。"
+    authentication: "确认调用方身份或凭证是否有效的认证过程。"
+    authorization: "判断已确认身份是否有权执行操作的授权过程。"
+showInNavigation: true

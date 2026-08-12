@@ -1,0 +1,73 @@
+---
+title: nego
+sidebarTitle: Overview
+description: Match inbound Content-Type and negotiate outbound HTTP representations.
+icon: arrows-exchange
+---
+
+# nego
+
+`go-slim.dev/nego` answers two HTTP questions: what representation did the client submit, and which representation can the server return? It interprets field values only; it does not read bodies, write responses, bind data, or select status codes.
+
+## Install
+
+```sh
+go get go-slim.dev/nego
+```
+
+The module requires Go 1.25.5 or later and has no runtime dependencies outside the standard library.
+
+## Two directions
+
+| Direction | Request field | API |
+| --- | --- | --- |
+| Identify submitted content | `Content-Type` | `TypeIs` |
+| Choose a response representation | `Accept` | `Negotiator.Accepts`, `Negotiator.Type` |
+| Choose a response charset | `Accept-Charset` | `Negotiator.Charset` |
+| Choose a content coding | `Accept-Encoding` | `Negotiator.Encoding` |
+| Choose a language | `Accept-Language` | `Negotiator.Language` |
+
+```go
+var negotiator = nego.New(128)
+
+func handle(w http.ResponseWriter, r *http.Request) {
+	input, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json", "xml")
+	if err != nil || input == "" {
+		http.Error(w, "unsupported content", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	output, err := negotiator.Type(r, "json", "xml")
+	if err != nil {
+		http.Error(w, "server configuration error", http.StatusInternalServerError)
+		return
+	}
+	if output == "" {
+		http.Error(w, "no acceptable representation", http.StatusNotAcceptable)
+		return
+	}
+
+	w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+	// Decode input and render output in application code.
+}
+```
+
+## Package contract
+
+- Media-type parameters are parsed for validity; `TypeIs` selects a decoder by type/subtype, not by parameters.
+- Missing `Accept` behaves as `*/*`; malformed client list members are ignored independently.
+- Invalid server offers return errors because they are configuration defects.
+- `q=0`, media parameters, `identity`, and RFC 4647 language filtering retain their protocol-specific meanings.
+- A shared `Negotiator` is safe for concurrent use.
+- The application sets `Content-Type`, `Content-Encoding`, `Content-Language`, `Vary`, and the final status.
+
+## Continue reading
+
+- [Matching Content-Type](/libraries/nego/guide/matching-content-type) covers aliases, wildcard expectations, parameters, and 415 policy.
+- [Negotiating representations](/libraries/nego/guide/negotiating-representations) covers quality, specificity, token fields, and language matching.
+- [Caching and application policy](/libraries/nego/advanced/caching-and-policy) covers reuse, `Vary`, error mapping, and complete handler flow.
+
+<Callout title="Keep transport policy outside nego">
+  An empty match is a protocol result, not an HTTP response. The endpoint decides
+  whether it means 406, 415, a fallback representation, or a route-specific rule.
+</Callout>

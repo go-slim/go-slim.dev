@@ -1,0 +1,61 @@
+---
+title: RequestLogger
+description: Record selected request and response fields after handler completion.
+---
+
+# RequestLogger
+
+`RequestLogger()` provides a ready-to-use `slog.Default()` configuration. It logs method, URI, status, latency, host, input/output lengths, user agent, remote IP, and request ID.
+
+```go
+handler := middleware.RequestLogger()(mux)
+```
+
+The callback runs after downstream returns, so it sees the final status, response size, and latency. Put the logger outside every handler it should observe.
+
+## Select only useful fields
+
+All fields in `RequestLoggerWithConfig` are opt-in, and `LogValuesFunc` is required:
+
+```go
+logger := middleware.RequestLoggerWithConfig(
+	middleware.RequestLoggerConfig{
+		LogLatency:   true,
+		LogMethod:    true,
+		LogURIPath:   true,
+		LogRoutePath: true,
+		LogRequestID: true,
+		LogStatus:    true,
+		LogResponseSize: true,
+		LogHeaders:     []string{"Content-Type"},
+		LogValuesFunc: func(r *http.Request, v middleware.RequestLoggerValues) error {
+			slog.InfoContext(r.Context(), "request complete",
+				"method", v.Method,
+				"path", v.URIPath,
+				"route", v.RoutePath,
+				"status", v.Status,
+				"latency", v.Latency,
+			)
+			return nil
+		},
+	},
+)
+```
+
+Other selectable values include protocol, remote IP, host, full URI, referer, user agent, Content-Length, and named query, form, or header values. `LogRoutePath` reads `Request.Pattern` after the downstream router has set it.
+
+## Forms and sensitive values
+
+Enabling `LogFormValues` calls `Request.ParseForm` before downstream and may consume an encoded form body. Downstream should read `Request.Form`, `PostForm`, or compatible binding APIs rather than depending on the raw body again.
+
+Log an allowlist only. Exclude Authorization, Cookie, passwords, tokens, and personal data. Query strings and Referer can also contain secrets.
+
+## Callback errors
+
+An error from `LogValuesFunc` is sent to `ErrorHandler` with the recommended status `500`, but the response is normally already committed. The default path does not overwrite it; a custom error handler must also check whether writing remains possible. A transient logging-sink failure is usually better degraded, counted, or routed elsewhere than allowed to change an otherwise successful response.
+
+`BeforeNextFunc` runs after timing starts and before downstream, and can establish request-scoped logging state. Every callback must be concurrent-safe.
+
+<Callout title="Generate the request ID first">
+  With the default header, put RequestID outside RequestLogger: `RequestID()(RequestLogger()(mux))`.
+</Callout>

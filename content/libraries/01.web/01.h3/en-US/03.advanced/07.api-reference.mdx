@@ -1,0 +1,93 @@
+---
+title: API reference
+description: A source-aligned reference for h3's exported routing, application, lifecycle, and response APIs.
+---
+
+# API reference
+
+This page summarizes the exported API and its operational boundaries. See the focused guide pages for examples and design rationale.
+
+## Router
+
+| API | Behavior |
+| --- | --- |
+| `NewRouter() *Router` | Creates an empty declaration tree with no published routes. |
+| `Use(func(http.Handler) http.Handler)` | Records middleware; nil panics immediately. |
+| `Handle(pattern, handler)` | Records or replaces the exact pattern key; empty pattern and nil handler panic. |
+| `HandleFunc(pattern, handler)` | Function form of `Handle`; a nil function panics. |
+| `Mount(prefix, child)` | Mounts a child by path prefix; nil child, empty prefix, or mount cycle panics. |
+| `Build()` | Compiles the full tree into a new ServeMux and atomically publishes it; syntax/conflict errors panic. |
+| `CompileRoutes() []Route` | Returns expanded patterns and middleware-wrapped handlers in unspecified order. |
+| `Handler(request)` | Looks up a handler and pattern in the currently published snapshot. |
+| `ServeHTTP(writer, request)` | Serves the currently published snapshot; it does not add `h3.Response`. |
+
+`Route` contains `Pattern string` and `Handler http.Handler`. Its handler already includes middleware from the declaring router and all mount ancestors.
+
+## App
+
+| API | Behavior |
+| --- | --- |
+| `New(options ...Options) *App` | Copies only the first options value, creates a router when nil, and selects fallback behavior. |
+| `Use` / `Handle` / `HandleFunc` | Delegate declarations to the app's root router. |
+| `Register(Component)` | Mounts component routes and registers lifecycle when the value also implements `Servlet`. |
+| `RegisterServlet(Servlet)` | Registers lifecycle without routes; shares start/stop ordering with components. |
+| `Handler(request)` | Looks up the current root-router snapshot; unbuilt declarations are not visible. |
+| `ServeHTTP` | Wraps the writer with `h3.Response`, then serves routes and configured fallbacks. |
+| `Start(ctx) error` | Builds, listens, starts servlets, and launches serving without blocking. |
+| `Stop() error` | Gracefully shuts down HTTP, stops servlets in reverse order, and returns joined errors. |
+| `Run(ctx, app) error` | Starts and blocks until this run has fully stopped, including `OnStopped`. |
+
+`Register` and `RegisterServlet` are valid only while the app is stopped. Nil values, invalid or duplicate normalized component prefixes, and registration during a run panic. Do not enroll one lifecycle owner through both methods. App lifecycle methods follow a sequential single-owner contract.
+
+## Components and servlets
+
+```go
+type Component interface {
+	Prefix() string
+	Router() *Router
+}
+
+type Servlet interface {
+	Start(context.Context) error
+	Stop() error
+}
+```
+
+`NewComponent(prefix)` creates only the route component. A concrete wrapper participates in lifecycle only when it implements `Servlet`. Start order is registration order; stop and rollback order is the reverse.
+
+## Options
+
+| Field | Source behavior |
+| --- | --- |
+| `Router` | Root router; nil creates a new empty router. |
+| `NotFound` | Replaces routing-layer 404 only; nil keeps ServeMux output. |
+| `MethodNotAllowed` | Replaces routing-layer 405 and receives the computed `Allow` header. |
+| `Addr` | TCP listen address; empty becomes `:http` for plain HTTP and `:https` when TLS is configured. |
+| `PassOptionsStar` | Disables net/http's general `OPTIONS *` handler so the request reaches the app. |
+| `TLSConfig` | Non-nil selects `ServeTLS`; must provide a certificate source. |
+| `ReadTimeout` | Maximum duration for reading the complete request, including body. |
+| `ReadHeaderTimeout` | Header-read limit; zero falls back to `ReadTimeout`. |
+| `WriteTimeout` | Maximum response-write duration under `http.Server` semantics. |
+| `IdleTimeout` | Keep-alive idle limit; zero falls back to `ReadTimeout`. |
+| `MaxHeaderBytes` | Parsed request-line/header limit; does not limit body size. |
+| `TLSNextProto` | Custom ALPN protocol takeover map; changes automatic HTTP/2 defaults when non-nil. |
+| `ConnState` | Receives connection state transitions. |
+| `ErrorLog` | HTTP server diagnostics and unexpected serve-exit logging. |
+| `OnStopped` | Completion notification after HTTP and all servlets stop; not called for startup failure. |
+| `HTTP2` | Present but currently ineffective. |
+| `Protocols` | Accepted protocol set, including optional unencrypted HTTP/2. |
+
+## Response
+
+| API | Behavior |
+| --- | --- |
+| `NewResponse(writer)` | Returns an existing `Response` unchanged or creates a tracking wrapper. |
+| `Status() int` | Defaults to 200; records the first final status written through the wrapper. |
+| `Size() int64` | Counts body bytes successfully written through the wrapper. |
+| `Committed() bool` | Reports whether `WriteHeader` or `Write` committed through the wrapper. |
+| `Unwrap()` | Returns the directly wrapped writer and enables `ResponseController` traversal. |
+| `Flush()` | Delegates through `ResponseController`; panics when unsupported. |
+| `Hijack()` | Delegates through `ResponseController`; returns an error when unsupported. |
+| `Push()` | Delegates to `http.Pusher`; returns an error when unsupported. |
+
+Direct writes to `Unwrap` bypass metadata. `Response` always implements optional protocol interfaces, so call results—not type assertions—indicate underlying support.

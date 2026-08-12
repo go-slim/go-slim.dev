@@ -1,0 +1,70 @@
+---
+title: KeyAuth
+description: Extract and validate API keys from headers, query values, path values, forms, or cookies.
+---
+
+# KeyAuth
+
+`KeyAuth` reads an API key from `Authorization: Bearer <key>` by default. A valid key reaches downstream; a missing or invalid key produces `401 Unauthorized`.
+
+## Quick start
+
+```go
+auth := middleware.KeyAuth(func(
+	r *http.Request,
+	key string,
+	source middleware.ExtractorSource,
+) (bool, error) {
+	expected := []byte(os.Getenv("API_KEY"))
+	return subtle.ConstantTimeCompare([]byte(key), expected) == 1, nil
+})
+
+handler := auth(mux)
+```
+
+The validator is required and may run concurrently. Compare secrets with a constant-time operation.
+
+## Choose key sources
+
+`KeyLookup` uses `source:name[:prefix]` expressions separated by commas:
+
+```go
+auth := middleware.KeyAuthWithConfig(middleware.KeyAuthConfig{
+	KeyLookup: "header:Authorization:Bearer ,header:X-API-Key",
+	AllowedCheckLimit: 2,
+	Validator: validateAPIKey,
+	ErrorHandler: writeAPIError,
+})
+```
+
+| Source | Example |
+| --- | --- |
+| Header | `header:Authorization:Bearer ` |
+| Query | `query:api_key` |
+| Path value | `param:key` |
+| Form | `form:api_key` |
+| Cookie | `cookie:api_key` |
+
+`AllowedCheckLimit` defaults to `1` and limits values checked per extractor. The middleware tries sources in declaration order and stops at the first valid key. The validator's `source` argument can distinguish old and new credential entry points during a migration.
+
+To reuse the same lookup syntax in a custom component, call:
+
+```go
+extractors, err := middleware.CreateExtractors(
+	"header:X-API-Key,query:api_key",
+	1,
+)
+```
+
+Each `ValuesExtractor` returns candidate values together with an `ExtractorSource`. `KeyAuthWithConfig` already constructs and runs these extractors, so ordinary authentication code does not need to call this helper directly.
+
+## Error classification
+
+- No key extracted: `401`, with `ErrKeyMissing` in the error chain.
+- Key extracted but validator returns `false`: `401`, with `ErrInvalidKey` in the error chain.
+- Validator returns an error: `500 Internal Server Error`, because this normally represents a storage or dependency failure.
+- An invalid `KeyLookup` panics during construction.
+
+<Callout title="Prefer headers">
+  Query strings commonly enter access logs, browser history, and Referer. Unless an existing protocol dictates otherwise, put API keys in Authorization or a dedicated header.
+</Callout>

@@ -1,0 +1,87 @@
+---
+title: RateLimiter
+description: Ask a replaceable store per request identity, with a built-in in-memory token bucket.
+---
+
+# RateLimiter
+
+`RateLimiter` derives an identity from each request and asks a store whether to allow it.
+
+```go
+store := middleware.NewRateLimiterMemoryStore(20) // 20 requests per second
+handler := middleware.RateLimiter(store)(mux)
+```
+
+The built-in store maintains a concurrent-safe token bucket per identity. Burst defaults to `ceil(rate)`, with a minimum of one; inactive identities expire after three minutes by default.
+
+```go
+store := middleware.NewRateLimiterMemoryStoreWithConfig(
+	middleware.RateLimiterMemoryStoreConfig{
+		Rate:      20,
+		Burst:     40,
+		ExpiresIn: 10 * time.Minute,
+	},
+)
+```
+
+Choose a positive rate and set burst explicitly from representative traffic.
+
+## Choose an identity
+
+The default identity uses the client-IP helper. Behind a reverse proxy, rely on it only after a trusted edge has sanitized forwarding headers. For authenticated APIs, a stable account or API-key ID is normally better:
+
+```go
+limiter := middleware.RateLimiterWithConfig(
+	middleware.RateLimiterConfig{
+		Store: store,
+		IdentifierExtractor: func(r *http.Request) (string, error) {
+			principal, ok := principalFromContext(r.Context())
+			if !ok {
+				return "", errors.New("principal missing")
+			}
+			return principal.ID, nil
+		},
+		ErrorHandler: writeAPIError,
+	},
+)
+```
+
+Extraction failure produces `403 Forbidden` with `ErrExtractorError` in the chain; store failure produces `500`. The store is required, and a missing one panics during construction.
+
+`BeforeFunc` runs before identity extraction and store access. It can prepare request-scoped state but does not own the response.
+
+## Denied responses
+
+By default, denial produces `429 Too Many Requests` with `ErrRateLimitExceeded` in the error chain. A `DenyHandler` can own the response completely:
+
+```go
+DenyHandler: func(w http.ResponseWriter, r *http.Request, id string, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = io.WriteString(w, `{"error":"rate_limited"}`)
+},
+```
+
+The built-in memory store implements `RateLimiterStoreContext`, writing `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `Retry-After` when denied.
+
+## Custom stores
+
+```go
+type RateLimiterStore interface {
+	Allow(identifier string) (bool, error)
+}
+```
+
+When a store needs the request context or response headers, it can additionally implement:
+
+```go
+type RateLimiterStoreContext interface {
+	AllowContext(http.ResponseWriter, *http.Request, string) (bool, error)
+}
+```
+
+Stores must be concurrent-safe. The memory store is suitable for per-instance limits; a global quota across instances requires a shared store with explicit consistency semantics. Bound identity cardinality so attackers cannot create unlimited entries.
+
+<Callout title="Rate limiting is not exact accounting">
+  Use rate limits for capacity protection and fairness. Billing, quota debits, and strongly consistent constraints need a separate persistent transaction model.
+</Callout>

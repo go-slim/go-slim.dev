@@ -1,0 +1,97 @@
+---
+title: Server options 与 TLS
+description: 配置 h3 的 HTTP server、TLS 启动、timeouts 和 stopped callback。
+---
+
+# Server options 与 TLS
+
+`h3.Options` 映射 app 启动时由 h3 拥有的 `http.Server` 设置。应在调用 `Start` 前配置 server 行为。
+
+`New` 会复制传入的第一个 `Options` 值，并忽略额外值，建议始终只传一个 options literal。`Router` 为 nil 时 h3 会创建空 router。`Addr` 为空时，普通 HTTP 使用 `:http`，配置 `TLSConfig` 后使用 `:https`。
+
+```go
+app := h3.New(h3.Options{
+	Router:            router,
+	Addr:              ":8080",
+	ReadHeaderTimeout: 5 * time.Second,
+	IdleTimeout:       60 * time.Second,
+	OnStopped: func(manual bool, err error) {
+		if !manual {
+			log.Printf("HTTP server exited: %v", err)
+		}
+	},
+})
+```
+
+## 重要 options
+
+| Option | 为什么重要 |
+| --- | --- |
+| `ReadHeaderTimeout` | 限制 slowloris 风格的 header 读取。 |
+| `ReadTimeout` / `WriteTimeout` | 约束 request 和 response I/O。 |
+| `IdleTimeout` | 控制 keep-alive 空闲连接。 |
+| `MaxHeaderBytes` | 限制 request line 和 headers 的解析字节数，不限制 request body。 |
+| `ErrorLog` | 接收意外 serving errors。 |
+| `ConnState` | 观察连接生命周期。 |
+| `PassOptionsStar` | 将 `OPTIONS *` 传给应用，而不是让 `net/http` 直接响应。 |
+| `TLSNextProto` | 安装自定义 ALPN protocol handlers；非 nil map 会改变自动 HTTP/2 行为。 |
+| `Protocols` | 选择接受的 HTTP protocols，也可以显式配置 unencrypted HTTP/2。 |
+| `OnStopped` | HTTP 和 servlets 停止后运行。 |
+
+`PassOptionsStar` 只影响特殊的 `OPTIONS *` 请求，不影响普通 path-based `OPTIONS /resource` routes。
+
+`HTTP2` 为后续兼容而暴露，但目前没有实际效果；源码也明确标注了这一限制。当前不要依赖它调整 HTTP/2。
+
+Server timeouts 属于 connection/I/O policy，不是完整的 application deadline strategy。`MaxHeaderBytes` 不限制 body，`App.Stop` 也不会从这些值派生 deadline。应在应用理解 workload 的位置设置逐请求 body limit 和 operation deadline。
+
+## TLS
+
+`TLSConfig` 非 nil 时，h3 使用 `http.Server.ServeTLS` 提供 HTTPS。配置必须通过 `Certificates`、`GetCertificate` 或 `GetConfigForClient` 提供证书。
+
+```go
+certificate, err := tls.LoadX509KeyPair("server.crt", "server.key")
+if err != nil {
+	return err
+}
+
+app := h3.New(h3.Options{
+	Addr: ":8443",
+	TLSConfig: &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	},
+})
+```
+
+如果证书配置无效，`Start` 会在创建 listener 前返回。
+
+没有显式配置 `Addr` 时，TLS listener 默认使用 `:https`（443 端口）；显式地址始终优先，因此可以继续使用 `:8443`。普通 HTTP 的默认值仍是 `:http`（80 端口）。
+
+启动检查只验证至少配置了一个 certificate source。动态 `GetCertificate` 或 `GetConfigForClient` callback 仍可能在特定 handshake 中失败。`ServeTLS` 会 clone TLS config；运行时如果必须调用 `SetSessionTicketKeys` 等方法，应在 h3 外自行拥有 TLS listener，并使用 `http.Server.Serve`。
+
+## Stopped callback
+
+每次成功运行都会捕获自己的 `OnStopped(manual, err)`。由 `App.Stop` 发起清理时 `manual=true`；HTTP serving 先退出时为 false。`err` 合并 serving、HTTP shutdown 和 servlet stop errors。
+
+Startup failure 不会调用 callback。`Stop` 会先交付结果再调用 `OnStopped`，因此不会等待慢 callback。阻塞调用方如果必须同时等待 cleanup 和 callback，应使用 `Run`。
+
+## Run
+
+阻塞式入口可以使用 `h3.Run`：
+
+```go
+if err := h3.Run(context.Background(), app); err != nil {
+	log.Fatal(err)
+}
+```
+
+`Run` 组合 `Start` 和等待 app 完成。context 仍然只控制启动；启动后取消它不会自动停止运行中的 app。
+
+因此 `Run(context.Background(), app)` 会一直阻塞，直到其他 owner 调用 `app.Stop()` 或 HTTP server 自行退出。Signal-driven program 通常更适合使用[入门](/zh-Hans/libraries/h3/guide/getting-started)中的显式 `Start` → 等待 signal → `Stop` 流程。
+
+## 部署注意事项
+
+- TLS 在上游 proxy 终止时保持 `TLSConfig` 为 nil，并在 middleware 中显式配置可信 forwarded-header policy。
+- Internet-facing listener 应设置 `ReadHeaderTimeout`；uploads、downloads、SSE 和 streaming 要谨慎选择 `ReadTimeout`、`WriteTimeout`。
+- `Shutdown` 不会关闭 hijacked connections。WebSocket 或 raw TCP upgrade 应由 owned component 跟踪。
+- `OnStopped` 只用于通知，不用于资源清理；servlet `Stop` 才是 cleanup boundary。

@@ -1,0 +1,47 @@
+---
+title: Decompress
+description: Decompress gzip request bodies and bound their expanded byte size.
+---
+
+# Decompress
+
+`Decompress` handles only `Content-Encoding: gzip`; other requests pass through unchanged. Matching is case-insensitive.
+
+```go
+handler := middleware.Decompress()(mux)
+```
+
+During downstream execution, the middleware replaces `Request.Body` with a gzip reader, removes `Content-Encoding` and `Content-Length`, and sets `ContentLength` to `-1`. It restores the original request metadata and closes the readers afterward.
+
+## Bound decompressed size
+
+```go
+decompress := middleware.DecompressWithConfig(
+	middleware.DecompressConfig{
+		MaxDecompressedSize: 8 << 20,
+		ErrorHandler:        writeAPIError,
+	},
+)
+```
+
+The default limit is 100 MiB. Setting `-1` disables the limit, which is normally inappropriate in production.
+
+An invalid gzip stream discovered while initializing the reader enters `ErrorHandler` with the recommended status `400 Bad Request`. If reads exceed the expanded-size limit, `Request.Body.Read` returns `*http.MaxBytesError`; the body consumer must render `413`, just as with streamed `BodyLimit` failures.
+
+## Combine with BodyLimit
+
+```go
+handler := middleware.BodyLimit(2 << 20)(
+	middleware.DecompressWithConfig(middleware.DecompressConfig{
+		MaxDecompressedSize: 8 << 20,
+	})(mux),
+)
+```
+
+The outer `BodyLimit` bounds the compressed bytes on the wire; `Decompress` bounds expanded content. Together they cover large transfers and small zip bombs.
+
+You can provide a reusable pool through `GzipDecompressPool`. It must be concurrent-safe and return a non-nil `*gzip.Reader` each time. Most applications should keep the default pool.
+
+<Callout title="One content coding only">
+  This middleware recognizes the complete value `gzip`; it does not parse a stack of Content-Encoding values. Normalize multiple encodings at the edge or implement a decoding chain if your protocol allows them.
+</Callout>

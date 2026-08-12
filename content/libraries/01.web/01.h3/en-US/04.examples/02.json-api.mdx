@@ -1,0 +1,114 @@
+---
+title: JSON API
+description: Build a small JSON API with h3, binding, nego, and standard middleware.
+---
+
+# JSON API
+
+This example combines h3 routing with request binding and explicit JSON error responses.
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"go-slim.dev/binding"
+	"go-slim.dev/h3"
+	"go-slim.dev/nego"
+)
+
+type createUserInput struct {
+	Name string `json:"name"`
+}
+
+func main() {
+	router := h3.NewRouter()
+	router.HandleFunc("POST /users", createUser)
+
+	app := h3.New(h3.Options{
+		Addr:             ":8080",
+		Router:           router,
+		NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+		MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+	})
+
+	if err := app.Start(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	shutdown, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+	<-shutdown.Done()
+
+	if err := app.Stop(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) {
+	kind, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json")
+	if err != nil || kind == "" {
+		jsonError(http.StatusUnsupportedMediaType, "UnsupportedMediaType").ServeHTTP(w, r)
+		return
+	}
+
+	var input createUserInput
+	if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+		switch {
+		case errors.Is(err, binding.ErrUnsupportedMediaType):
+			jsonError(http.StatusUnsupportedMediaType, "UnsupportedMediaType").ServeHTTP(w, r)
+		default:
+			jsonError(http.StatusBadRequest, "BadRequest").ServeHTTP(w, r)
+		}
+		return
+	}
+
+	if input.Name == "" {
+		jsonError(http.StatusBadRequest, "NameRequired").ServeHTTP(w, r)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"name": input.Name,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func jsonError(status int, code string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, status, map[string]any{
+			"ok":   false,
+			"code": code,
+		})
+	})
+}
+```
+
+## Notes
+
+- h3 owns routing and lifecycle.
+- `binding` owns input parsing.
+- `nego` makes the request content-type contract explicit.
+- The handler owns validation and business error mapping.
+- Response shape stays application-specific.
+- Both route fallbacks use the API response shape; h3 preserves the `Allow` header on 405 responses.
+- The signal context is not passed to `Start`. It is translated into the explicit `Stop` operation that owns runtime shutdown.
+- Add a request body limit before binding untrusted input; server header limits do not limit request bodies.
+- Once `writeJSON` commits its status, a later encoder error cannot be remapped to another HTTP status. Log such transport errors according to application policy.

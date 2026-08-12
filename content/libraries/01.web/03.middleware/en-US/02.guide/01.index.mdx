@@ -1,0 +1,27 @@
+---
+title: Guide
+description: Choose, configure, and compose the middleware needed by an HTTP application.
+---
+
+# Guide
+
+Start with the shared operating rules, then open the page for the middleware you need. Each middleware page owns its configuration, ordering, security boundaries, and production checks.
+
+## Recommended path
+
+1. Read [Before you begin](/libraries/middleware/guide/before-you-begin) before composing a stack.
+2. Add only the middleware required by the current endpoint or router boundary.
+3. Verify ordering where middleware observes or changes another middleware's result.
+4. Review the focused page before enabling security-sensitive or body-reading middleware in production.
+
+## Common starting points
+
+| Need | Page |
+| --- | --- |
+| Authenticate a caller | [BasicAuth](/libraries/middleware/guide/basic-auth) or [KeyAuth](/libraries/middleware/guide/key-auth) |
+| Bound request work | [BodyLimit](/libraries/middleware/guide/body-limit), [ContextTimeout](/libraries/middleware/guide/context-timeout), [RateLimiter](/libraries/middleware/guide/rate-limiter) |
+| Recover and observe requests | [Recover](/libraries/middleware/guide/recover), [RequestID](/libraries/middleware/guide/request-id), [RequestLogger](/libraries/middleware/guide/request-logger) |
+| Apply browser-facing policy | [CORS](/libraries/middleware/guide/cors), [CSRF](/libraries/middleware/guide/csrf), [Secure](/libraries/middleware/guide/secure) |
+| Change transport behavior | [Gzip](/libraries/middleware/guide/gzip), [Decompress](/libraries/middleware/guide/decompress), [Proxy](/libraries/middleware/guide/proxy) |
+
+Use the sidebar or the catalog on the [overview](/libraries/middleware) to locate every middleware.

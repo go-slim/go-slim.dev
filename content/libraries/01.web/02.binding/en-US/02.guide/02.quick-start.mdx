@@ -1,0 +1,107 @@
+---
+title: Quick start
+description: Build a first request binding flow in a net/http handler.
+---
+
+# Quick start
+
+This handler reads an organization ID from the path, a user from a JSON body, and leaves binding failures to a shared HTTP boundary.
+
+## Define the input
+
+An input struct should contain only fields the endpoint allows clients to provide:
+
+```go
+type createUserInput struct {
+	OrganizationID uint     `param:"organization_id"`
+	Name           string   `json:"name"`
+	Tags           []string `json:"tags"`
+}
+```
+
+binding reads the `param` tag. The `json` fields retain standard `encoding/json` behavior.
+
+## Write the handler
+
+```go
+func createUser(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var input createUserInput
+	if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+		writeBindingError(w, err)
+		return
+	}
+
+	if input.Name == "" {
+		http.Error(w, "name is required", http.StatusUnprocessableEntity)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(input)
+}
+```
+
+For a `POST` request, `DefaultBinder` binds path values and then the body. It does not bind URL query values automatically, avoiding an implicit contest between query and body fields.
+
+## Register the route
+
+```go
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"POST /organizations/{organization_id}/users",
+		createUser,
+	)
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: binding.Middleware(mux),
+	}
+	log.Fatal(server.ListenAndServe())
+}
+```
+
+The example installs `binding.Middleware` so later code can reuse parsed query values and configure multipart behavior. The current handler does not require it to read a path value matched by `http.ServeMux`.
+
+## Map input errors
+
+binding never writes a response. The application can classify failures in one place:
+
+```go
+func writeBindingError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, binding.ErrUnsupportedMediaType) {
+		status = http.StatusUnsupportedMediaType
+	}
+
+	http.Error(w, http.StatusText(status), status)
+}
+```
+
+This example chooses the common `400` and `415` mappings, but that policy belongs to the application.
+
+## Read one value
+
+When a handler does not need an input struct, a generic helper is more direct:
+
+```go
+func listUsers(w http.ResponseWriter, r *http.Request) {
+	page, err := binding.QueryParamOr(r, "page", 1)
+	if err != nil {
+		writeBindingError(w, err)
+		return
+	}
+
+	// Validate page, then call the application layer.
+	_ = page
+}
+```
+
+## Next steps
+
+- For input assembled from several sources, read [Struct binding](/libraries/binding/guide/struct-binding).
+- For a few explicit values, read [Typed values](/libraries/binding/guide/typed-values).
+- For JSON, forms, or files, read [Bodies and files](/libraries/binding/guide/body-and-files).

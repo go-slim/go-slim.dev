@@ -1,0 +1,66 @@
+---
+title: Proxy
+description: 使用标准库 ReverseProxy、可替换 balancer 与受控重试转发请求。
+---
+
+# Proxy
+
+`Proxy` 使用 `httputil.ReverseProxy` 把请求转发到 balancer 选择的 upstream，支持普通响应、流式响应与协议升级。
+
+## 单组 upstream
+
+```go
+targetURL, err := url.Parse("http://127.0.0.1:9000")
+if err != nil {
+	log.Fatal(err)
+}
+
+balancer := middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{
+	{Name: "primary", URL: targetURL},
+})
+
+handler := middleware.Proxy(balancer)(fallback)
+```
+
+也可以使用 `NewRandomBalancer`。内置 balancer 并发安全；`AddTarget` 会拒绝 nil、缺少 URL 或名称重复的 target。服务期间应把 target 的 `URL` 与 `Meta` 视为不可变。
+
+## 重写、重试和传输
+
+```go
+proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
+	Balancer:  balancer,
+	RetryCount: 2,
+	Rewrite: map[string]string{
+		"/api/*": "/$1",
+	},
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 5 * time.Second,
+	},
+	ModifyResponse: inspectUpstreamResponse,
+	ErrorHandler:   writeAPIError,
+})
+```
+
+`RetryCount` 表示首次失败之后的额外尝试数，不能为负。默认只重试包装了 `ErrProxyFailure` 的代理尝试错误；全部尝试失败后，`ErrorHandler` 会收到最终错误和建议状态码 `502 Bad Gateway`。upstream 已返回的 HTTP 4xx/5xx 是完整响应，不会重试。带 body 的请求只有提供 `Request.GetBody` 才能重放。
+
+`Rewrite` 与 `RegexRewrite` 在代理前修改路径。规则不得重叠，因为 map 顺序不稳定。自定义 `Transport` 和 `ModifyResponse` 可通过 `ProxyTargetFromRequest(req)` 获取本次选择的 target。
+
+## 转发 Header 的信任边界
+
+middleware 只会在 header 缺失时补充 `X-Real-IP` 和 `X-Forwarded-Proto`，不会覆盖已有值。若服务可被公网客户端直接访问，必须由可信边缘移除客户端伪造的 forwarding header，再传入此 middleware。
+
+## 自定义 Balancer
+
+```go
+type ProxyBalancer interface {
+	AddTarget(*ProxyTarget) bool
+	RemoveTarget(name string) bool
+	Next(*http.Request) (*ProxyTarget, error)
+}
+```
+
+实现必须并发安全。没有可用 target、balancer 错误或 transport 失败默认产生 `502 Bad Gateway`。客户端 context 已取消时，proxy 直接结束，不额外写一个 middleware 错误响应。
+
+<Callout title="给 Transport 配置边界">
+  默认 Transport 未必符合你的 upstream 延迟预算。明确设置连接、TLS、响应头和空闲连接策略，并监控每个 target 的失败率。
+</Callout>

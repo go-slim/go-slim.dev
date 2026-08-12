@@ -1,0 +1,30 @@
+---
+title: RemoveTrailingSlash
+description: 在进入 router 前移除非根路径的末尾斜杠。
+---
+
+# RemoveTrailingSlash
+
+`RemoveTrailingSlash` 移除非根路径末尾的 `/`。默认直接修改 `URL.Path` 与 `RequestURI` 后调用下游，不产生客户端往返。
+
+```go
+// /documents/?sort=new -> /documents?sort=new
+handler := middleware.RemoveTrailingSlash()(mux)
+```
+
+根路径 `/` 不会变成空路径，query string 会被保留。应放在 router 外层。
+
+## 发送 redirect
+
+```go
+removeSlash := middleware.RemoveTrailingSlashWithConfig(
+	middleware.RemoveTrailingSlashConfig{
+		RedirectCode: http.StatusPermanentRedirect,
+		Skipper:      skipFilePaths,
+	},
+)
+```
+
+`RedirectCode` 为零时内部转发；设为 300 到 308 时让客户端访问 canonical URL。范围外的值会在构造时 panic。对可能携带 body 的请求，307/308 明确保留方法与 body。
+
+redirect target 会收敛开头的双 slash、反斜杠或混合形式，避免浏览器把 Location 解释为外部 scheme-relative URL。不要与 `AddTrailingSlash` 或相反方向的上游 redirect 同时启用。

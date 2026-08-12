@@ -1,0 +1,24 @@
+---
+title: 指南
+description: 学习 h3 核心工作流：启动 app、声明 routes、组合 middleware，并管理生命周期。
+---
+
+# 指南
+
+指南覆盖 h3 的日常使用路径。如果刚开始使用这个包，建议按顺序阅读：
+
+1. 启动 app，并显式关闭。
+2. 使用标准 `http.ServeMux` pattern 声明 routes。
+3. 在 route tree 上组合 middleware。
+4. 理解 routing fallbacks、app lifecycle 和 servlets。
+
+## 推荐阅读路径
+
+| 页面 | 你应该获得什么 |
+| --- | --- |
+| [入门](/zh-Hans/libraries/h3/guide/getting-started) | 带显式信号关闭流程的完整可运行 server。 |
+| [路由](/zh-Hans/libraries/h3/guide/routing) | ServeMux patterns、mounts、发布、重定向和 404/405 边界。 |
+| [中间件](/zh-Hans/libraries/h3/guide/middleware) | 组合顺序、父子 wrapping 和共享状态规则。 |
+| [生命周期](/zh-Hans/libraries/h3/guide/lifecycle) | Start/stop、回滚、可重启 servlets、callbacks 和关闭边界。 |
+
+读完这一节后，需要 component ownership 或更底层的 response/server 控制时，继续看 [进阶](/zh-Hans/libraries/h3/advanced)。

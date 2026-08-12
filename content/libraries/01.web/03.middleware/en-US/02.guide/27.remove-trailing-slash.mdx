@@ -1,0 +1,30 @@
+---
+title: RemoveTrailingSlash
+description: Remove a trailing slash from non-root paths before routing.
+---
+
+# RemoveTrailingSlash
+
+`RemoveTrailingSlash` removes the final `/` from a non-root path. By default it mutates `URL.Path` and `RequestURI`, then calls downstream without a client round trip.
+
+```go
+// /documents/?sort=new -> /documents?sort=new
+handler := middleware.RemoveTrailingSlash()(mux)
+```
+
+The root path `/` never becomes empty, and query strings are preserved. Place the middleware outside the router.
+
+## Send a redirect
+
+```go
+removeSlash := middleware.RemoveTrailingSlashWithConfig(
+	middleware.RemoveTrailingSlashConfig{
+		RedirectCode: http.StatusPermanentRedirect,
+		Skipper:      skipFilePaths,
+	},
+)
+```
+
+A zero `RedirectCode` means internal forwarding. A value from 300 through 308 sends the client to the canonical URL; anything outside the range panics during construction. For requests that may carry bodies, 307 and 308 explicitly preserve method and body.
+
+The redirect target collapses initial double slashes, backslashes, or mixed forms so browsers cannot interpret Location as an external scheme-relative URL. Do not combine this with `AddTrailingSlash` or an opposite upstream redirect.

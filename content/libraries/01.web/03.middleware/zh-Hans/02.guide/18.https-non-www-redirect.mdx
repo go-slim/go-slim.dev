@@ -1,0 +1,35 @@
+---
+title: HTTPSNonWWWRedirect
+description: 把请求统一到 HTTPS 并移除 www host 前缀。
+---
+
+# HTTPSNonWWWRedirect
+
+`HTTPSNonWWWRedirect` 同时规范 scheme 和 host：目标总是 HTTPS，并移除开头的 `www.`。
+
+```go
+handler := middleware.HTTPSNonWWWRedirect()(mux)
+```
+
+| 输入 | 结果 |
+| --- | --- |
+| `http://www.example.com/docs` | `https://example.com/docs` |
+| `https://www.example.com/docs` | `https://example.com/docs` |
+| `http://example.com/docs` | `https://example.com/docs` |
+
+已经是 HTTPS non-www 的请求进入下游，path 与 query string 保持不变。
+
+## 自定义 redirect
+
+```go
+redirect := middleware.HTTPSNonWWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+默认使用 301；有效范围为 300 到 308。scheme 可能来自代理 forwarding header，因此必须先建立并执行可信 proxy 边界。
+
+如果只想移除 `www.` 而保留当前 scheme，请使用 `NonWWWRedirect`。

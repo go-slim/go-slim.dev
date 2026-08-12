@@ -1,0 +1,46 @@
+---
+title: Secure
+description: 为浏览器响应集中设置安全 Header 与 HTTPS 策略。
+---
+
+# Secure
+
+`Secure` 在调用下游前设置浏览器安全响应头。默认写入：
+
+```http
+X-XSS-Protection: 1; mode=block
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+```
+
+```go
+handler := middleware.Secure()(mux)
+```
+
+## CSP、HSTS 与 Referrer Policy
+
+```go
+secure := middleware.SecureWithConfig(middleware.SecureConfig{
+	XSSProtection:        "0",
+	ContentTypeNosniff:   "nosniff",
+	XFrameOptions:        "DENY",
+	HSTSMaxAge:           31536000,
+	HSTSPreloadEnabled:   false,
+	ContentSecurityPolicy: "default-src 'self'; object-src 'none'",
+	ReferrerPolicy:        "strict-origin-when-cross-origin",
+})
+```
+
+`HSTSMaxAge` 默认为 `0`，即不启用 HSTS。启用后，仅当 `Request.TLS` 非 nil 或 `X-Forwarded-Proto` 为 `https` 时写入 Header；默认包含 subdomains，设置 `HSTSExcludeSubdomains` 可排除。`HSTSPreloadEnabled` 只添加 `preload` directive，不会替你提交或验证域名。
+
+`CSPReportOnly` 会把 CSP 写到 `Content-Security-Policy-Report-Only`，适合先观察违规再逐步收紧。策略字符串完全由应用负责，必须覆盖实际脚本、样式、图片、frame 与连接来源。
+
+## 与反向代理组合
+
+HSTS 是否写入可能依赖 `X-Forwarded-Proto`。可信边缘必须删除客户端伪造值并重建，否则 HTTP 请求可能被误判为 HTTPS。
+
+安全 Header 应覆盖错误响应时，把 `Secure` 放在可能产生错误的 middleware 外层；若只希望应用页面携带，则缩小挂载范围或用 `Skipper`。
+
+<Callout title="Header 不是一次性清单">
+  CSP、frame 策略、HSTS 和 Referrer Policy 都必须与实际部署和前端资源模型一致。先在预发布环境验证，再逐步上线。
+</Callout>

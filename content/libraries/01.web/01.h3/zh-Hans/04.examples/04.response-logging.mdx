@@ -1,0 +1,54 @@
+---
+title: Response logging
+description: 从 h3.Response 记录最终 status 和 response size。
+abbr:
+  "route-error handlers": 处理 404、405 等路由层错误的处理器。
+  "app-boundary handlers": 只在 App 路由边界运行的处理器。
+  "route misses": 请求未匹配路由或请求方法不受支持的情况。
+---
+
+# Response logging
+
+通过 `App` 服务时，handler 收到的是 `h3.Response`。middleware 可以在调用 next 后读取最终响应 metadata。
+
+```go
+func responseLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		response := h3.NewResponse(w)
+
+		defer func() {
+			log.Printf(
+				"method=%s pattern=%q status=%d size=%d committed=%t duration=%s",
+				r.Method,
+				r.Pattern,
+				response.Status(),
+				response.Size(),
+				response.Committed(),
+				time.Since(started),
+			)
+		}()
+
+		next.ServeHTTP(response, r)
+	})
+}
+```
+
+像普通 middleware 一样注册：
+
+```go
+router := h3.NewRouter()
+router.Use(responseLog)
+router.HandleFunc("GET /health", health)
+```
+
+Middleware 在 `App` 下运行时，`NewResponse` 会返回已有的 h3 response；复用到 standalone router 时则补上 tracking。Deferred log 在 panic 向外层 recovery middleware 展开时也会执行。
+
+## 注意点
+
+- route-error handlers 是 app-boundary handlers；如果 route misses 也需要相同日志，需要手动包裹它们。
+- Logger 如果要观察 panic 被 recover 后写出的最终 status，应位于 recovery 外层，也就是先注册 logger、再注册 recovery。
+- streaming 和 hijacked responses 需要协议专属解释。
+- `Response` 记录最终 status；临时响应应通过 `Unwrap` 写入。
+- 经 `Unwrap` 的写入，以及 wrapper commit 前执行的 `Flush`、`Hijack`，可能绕过 metadata accounting。
+- `Status()==200` 且 `Committed()==false` 表示没有通过 wrapper 写出最终 response。

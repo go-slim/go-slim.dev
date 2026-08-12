@@ -1,0 +1,117 @@
+---
+title: 请求生命周期
+description: 理解 Middleware、路径值、缓存、资源限制与重复读取。
+---
+
+# 请求生命周期
+
+`binding.Middleware` 是请求级优化与配置层，不是大多数绑定 API 的硬性前置条件。
+
+## Middleware 做什么
+
+对每个未跳过的请求，它会在派生 context 中保存：
+
+- 一次 `r.URL.Query()` 的结果，供后续绑定复用；
+- 可枚举的路径参数名记录；
+- multipart 表单的内存阈值。
+
+它不会提前读取请求体或解析表单。
+
+```go
+server := &http.Server{
+	Addr:    ":8080",
+	Handler: binding.Middleware(mux),
+}
+```
+
+## 没有 Middleware 时
+
+| 操作 | 行为 |
+| --- | --- |
+| Query 绑定 | 正常工作，但每次从 `URL.Query()` 读取 |
+| Form 与 body 绑定 | 正常工作，multipart 使用默认 32 MiB 内存阈值 |
+| 标准库路由匹配的路径参数 | 通过 `Request.Pattern` 正常发现 |
+| `binding.SetPathValue` | 不可用，并会 panic |
+
+## 手动加入路径值
+
+Go 可以通过 `r.SetPathValue` 设置值，却不提供枚举新参数名的 API。若新值需要被 `BindPathValues` 或泛型路径函数发现，使用：
+
+```go
+func tenant(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		binding.SetPathValue(r, "tenant", resolveTenant(r))
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+`SetPathValue` 必须运行在 `binding.Middleware` 内部，否则会 panic：
+
+```text
+binding: SetPathValue requires Middleware
+```
+
+如果只是覆盖路由中已经存在的参数名，直接调用 `r.SetPathValue` 仍可被发现，因为名称已经来自 `Request.Pattern`。
+
+`PathValuesBinder` 的每个方法本身已经接收目标键名，因此无需枚举，也能读取通过 `r.SetPathValue` 直接加入的值。
+
+## 配置与跳过
+
+```go
+handler := binding.MiddlewareWithConfig(binding.MiddlewareConfig{
+	Skipper: func(r *http.Request) bool {
+		return r.URL.Path == "/health"
+	},
+	FormParseMaxMemory: 8 << 20,
+})(mux)
+```
+
+被 `Skipper` 选中的请求会原样传给下一个 Handler，不包含 query 缓存、路径名记录或 multipart 配置，因此也不能调用 `binding.SetPathValue`。
+
+`FormParseMaxMemory` 为 `0` 时使用默认的 32 MiB。它只决定 multipart 文件何时从内存转存临时文件，并不限制请求总大小。
+
+## Middleware 顺序
+
+所有调用 `binding.SetPathValue` 的中间件都必须位于 binding 初始化之后：
+
+```go
+handler := recoverMiddleware(
+	binding.Middleware(
+		tenantMiddleware(mux),
+	),
+)
+```
+
+外层基础设施中间件仍可以观察全部请求。无需绑定的静态资源或健康检查可以通过 `Skipper` 排除。
+
+## Query 缓存与请求修改
+
+Middleware 在进入下游之前解析并缓存 query。如果之后修改 `r.URL.RawQuery`，binding 仍会读取最初缓存的值。需要修改 query 的中间件应放在 binding Middleware 之前，或避免安装该缓存层。
+
+## 哪些读取可以重复
+
+| 来源 | 重复读取行为 |
+| --- | --- |
+| 路径、query、Header | 请求状态不变时可重复读取 |
+| URL 编码和 multipart 表单 | 标准库在 `http.Request` 上缓存解析结果 |
+| JSON、XML | 消费 `Request.Body`，通常不能再次读取 |
+| `SetPathValue` | 修改请求，影响之后的路径读取 |
+
+不要对带 JSON 或 XML body 的同一请求调用两次 `DefaultBinder.Bind`。需要日志、验签或重试读取时，由上层明确缓存并恢复 `Request.Body`。
+
+## 并发边界
+
+同一个 request、目标结构体或 `ValueBinder` 应由一条 Handler 执行流拥有；binding 不保证并发修改这些对象安全。
+
+不同请求之间共享的实现是并发安全的：结构体反射元数据保存在 `sync.Map` 中，JSON 缓冲区通过 `sync.Pool` 复用，容量超过 64 KiB 的缓冲区不会放回池中。
+
+## 上线检查
+
+- 在解码前限制不可信 body 的总大小。
+- 每个字段只指定一个权威来源。
+- 写请求中的 query 使用显式 `BindQueryParams`。
+- Header 始终使用 `BindHeaders` 显式绑定。
+- JSON/XML body 只绑定一次。
+- 把 multipart 内存阈值与上传总量限制分开配置。
+- 在一个 HTTP 边界统一分类并渲染绑定错误。

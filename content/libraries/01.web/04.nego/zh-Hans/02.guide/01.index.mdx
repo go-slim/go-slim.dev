@@ -1,0 +1,13 @@
+---
+title: 指南
+description: 匹配请求媒体类型，并协商服务端可返回的响应表示。
+---
+
+# 指南
+
+按 HTTP 交换方向阅读：先确认客户端提交了什么，再选择服务端可返回的表示。
+
+1. [匹配 Content-Type](/zh-Hans/libraries/nego/guide/matching-content-type)：alias、wildcard、parameter 和 unsupported media type 策略。
+2. [协商响应表示](/zh-Hans/libraries/nego/guide/negotiating-representations)：quality、specificity、token field、charset、encoding 和 language。
+
+完成匹配后，继续阅读[进阶](/zh-Hans/libraries/nego/advanced)，处理缓存复用、`Vary` 和应用策略。

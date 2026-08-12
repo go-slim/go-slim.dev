@@ -1,0 +1,46 @@
+---
+title: RequestID
+description: Reuse or generate a request ID and propagate it through request and response headers.
+---
+
+# RequestID
+
+`RequestID` reads `X-Request-ID`. If the client did not provide one, it generates a random 32-character value. The resolved ID is written to both request and response headers before downstream execution.
+
+```go
+handler := middleware.RequestID()(mux)
+```
+
+Place it outside `RequestLogger` so the logger reliably sees the value:
+
+```go
+handler := middleware.RequestID()(
+	middleware.RequestLogger()(mux),
+)
+```
+
+## Custom header and generator
+
+```go
+requestID := middleware.RequestIDWithConfig(middleware.RequestIDConfig{
+	TargetHeader: "Trace-ID",
+	Generator: func() string {
+		return uuid.NewString()
+	},
+	RequestIDHandler: func(r *http.Request, id string) {
+		slog.Debug("request accepted", "request_id", id)
+	},
+})
+```
+
+`Generator` runs only when the header is empty. `RequestIDHandler` runs after the ID is resolved and the response header is set, but before downstream execution. It may be called concurrently.
+
+`RequestLogger`'s `LogRequestID` reads the standard `X-Request-ID`. If you choose a custom header here, select it with `LogHeaders` or read it in a custom logging callback.
+
+## Trusting client IDs
+
+The middleware reuses an existing value as-is without validating format or length. At a public boundary, have a trusted edge remove invalid IDs or add validation/replacement before `RequestID` to prevent log injection, oversized fields, and cross-tenant correlation.
+
+<Callout title="A request ID is not a trace ID">
+  It is useful for log correlation but does not implement sampling, parent/span relationships, or a standard distributed-tracing propagation format. Use the relevant protocol and SDK for tracing.
+</Callout>

@@ -1,0 +1,49 @@
+title: nego
+description:
+  en-US: HTTP request content detection and response representation negotiation.
+  zh-Hans: 专注于 HTTP 请求内容类型判断和响应表示协商。
+icon: icons/negotiation.svg
+llms:
+  repository: go-slim/nego
+  skillDescription: Nego is a Go package for HTTP content negotiation.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    offer: "服务端能够提供的一种候选表示或内容编码。"
+    candidate: "参与匹配和排序的候选项。"
+    Candidate: "参与匹配和排序的候选项。"
+    quality: "HTTP 协商中的 q 权重，表示客户端偏好程度。"
+    Quality: "HTTP 协商中的 q 权重，表示客户端偏好程度。"
+    "media type": "描述内容格式的 MIME 类型，例如 application/json。"
+    "content coding": "应用于消息正文的压缩或转换编码，例如 gzip。"
+    wildcard: "用星号表达一组可匹配值的通配规则。"
+    specificity: "候选匹配的具体程度；越少依赖通配符通常越具体。"
+    "preference field": "Accept 等表达客户端可接受范围与权重的请求头字段。"
+    "structured suffix": "媒体类型子类型末尾的 +json、+xml 等结构化后缀。"
+    Vary: "声明响应会随哪些请求头变化、供缓存正确区分变体的响应头。"
+    RFC: "Request for Comments，互联网协议与实践的标准文档系列。"
+    alias: "把非规范名称映射到同一语义值的别名。"
+    charset: "字符到字节之间的编码方案。"
+    decoder: "把请求正文按指定格式解析为应用数据的解码器。"
+    Decoder: "把请求正文按指定格式解析为应用数据的解码器。"
+    endpoint: "对外提供某项 HTTP 能力的请求入口。"
+    Endpoint: "对外提供某项 HTTP 能力的请求入口。"
+    range: "客户端在协商字段中声明的一个可接受值范围。"
+    "expected range": "服务端预期客户端字段必须满足的值范围。"
+    "client range": "客户端在 Accept 类字段中声明的可接受范围。"
+    "client list member": "客户端偏好列表中的一个带权候选项。"
+    encoding: "把内容转换为可传输字节形式的编码。"
+    identity: "不对消息正文应用额外内容编码的原样表示。"
+    subtype: "媒体类型中斜杠之后的细分类型。"
+    "type/subtype": "媒体类型的主类型与子类型组合。"
+    "Basic Filtering": "按语言标签前缀逐级匹配的基础过滤算法。"
+    "deep copy": "递归复制内部可变数据、使副本与原值不共享状态。"
+    "MIME type": "描述内容格式的媒体类型，例如 text/html。"
+    "Not Acceptable": "HTTP 406，服务端无法提供客户端可接受的响应表示。"
+    "Unsupported Media Type": "HTTP 415，服务端不支持请求正文的媒体类型或编码。"
+    "language filtering": "从可用语言标签中筛选匹配客户端语言范围的过程。"
+    "quoted string": "HTTP 字段语法中用双引号包裹、支持转义的字符串。"
+    "least-frequently-used": "优先淘汰使用次数最少条目的缓存策略。"
+showInNavigation: true

@@ -1,0 +1,78 @@
+---
+title: 测试与生产检查
+description: 测试 h3 route snapshot 和 lifecycle，并检查生产环境准备情况。
+---
+
+# 测试与生产检查
+
+h3 让请求处理保持接近 `net/http`，所以多数测试不需要打开 listener，直接使用 `httptest` 即可。Lifecycle 拥有 listeners、goroutines 和 cleanup order，应另外编写针对性测试。
+
+## 测试 standalone router
+
+```go
+func TestUserRoute(t *testing.T) {
+	router := h3.NewRouter()
+	router.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.PathValue("id")))
+	})
+	router.Build()
+
+	request := httptest.NewRequest(http.MethodGet, "/users/42", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != "42" {
+		t.Fatalf("response = (%d, %q)", response.Code, response.Body.String())
+	}
+}
+```
+
+显式 `Build` 是测试的一部分。它会暴露非法或冲突 patterns，并确保测试经过与生产一致的 compiled middleware chain。
+
+## 不打开端口测试 App
+
+`App` 本身就是 `http.Handler`。先 build router，再用 `httptest` 验证 response metadata 和自定义 fallbacks：
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+})
+router.Build()
+
+app := h3.New(h3.Options{Router: router})
+response := httptest.NewRecorder()
+app.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+```
+
+这种方式不会测试 listener creation、TLS handshake 或 servlet lifecycle，它们应作为聚焦的 integration tests。`Addr: "127.0.0.1:0"` 适合只验证 lifecycle 的测试，但 `App` 不暴露实际 listener address；需要 client connection 的测试必须选择显式 test address，或放到 process-level integration boundary 中执行。
+
+## Lifecycle 测试
+
+每个 servlet 至少验证这些序列：
+
+| 序列 | 期望性质 |
+| --- | --- |
+| `Start` → `Stop` | `Stop` 返回前释放全部资源和 goroutines。 |
+| `Start` → `Stop` → `Start` → `Stop` | 每轮 cancellation state 都能正确重建。 |
+| startup context 已取消 | `Start` 迅速返回，不遗留 live resource。 |
+| 后续 servlet 启动失败 | 前面的 servlets 可以安全回滚。 |
+| defensive `Stop` 重复调用 | component 承诺幂等时不会 double-close panic 或 double-free。 |
+
+捕获共享状态的 component 和 middleware 应运行 `go test -race ./...`。Router 的 atomic snapshot 不会保护 handlers、middleware 或 servlets 内部的状态。
+
+## 生产检查表
+
+- 显式设置 address 和合适的 HTTP timeouts。
+- 独立于 `MaxHeaderBytes` 设置 request body limits。
+- 显式安装 recovery、request identity、authentication、security headers、observability 和 rate limits middleware。
+- Route configuration 保持 single-writer，并在发布 readiness 前完成 build。
+- 确保 worker 不会因为忽略 owned stop signal 而让 `Stop` 永久等待。
+- 跟踪 hijacked connections 以及其他不受 `http.Server.Shutdown` 管理的资源。
+- 把 `OnStopped` 当作通知，资源清理保留在 servlet `Stop`。
+- 将 startup、serving 和 shutdown errors 报告给 process supervision。
+- 动态选择证书时，用真实 handshake 测试 TLS certificate callbacks。
+
+## h3 有意不做的决定
+
+h3 不定义 health model、readiness barrier、central error type、renderer、validation policy、trusted-proxy policy 或 observability backend。这些都需要应用上下文，应保持显式，并在引入它们的边界上测试。

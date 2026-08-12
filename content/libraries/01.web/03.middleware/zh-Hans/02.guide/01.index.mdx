@@ -1,0 +1,27 @@
+---
+title: 指南
+description: 按 HTTP 应用的实际需求选择、配置和组合中间件。
+---
+
+# 指南
+
+先了解共通的使用规则，再打开当前需要的中间件页面。每个页面独立说明配置、组合顺序、安全边界和生产检查。
+
+## 建议路径
+
+1. 组合 stack 前先阅读[使用前须知](/zh-Hans/libraries/middleware/guide/before-you-begin)。
+2. 只为当前 endpoint 或 router 边界增加必要的中间件。
+3. 一个中间件会观察或改写另一个中间件的结果时，显式验证注册顺序。
+4. 生产环境启用安全敏感或会读取 body 的中间件前，阅读它的独立页面。
+
+## 常见起点
+
+| 需求 | 页面 |
+| --- | --- |
+| 认证调用方 | [BasicAuth](/zh-Hans/libraries/middleware/guide/basic-auth) 或 [KeyAuth](/zh-Hans/libraries/middleware/guide/key-auth) |
+| 限制请求成本 | [BodyLimit](/zh-Hans/libraries/middleware/guide/body-limit)、[ContextTimeout](/zh-Hans/libraries/middleware/guide/context-timeout)、[RateLimiter](/zh-Hans/libraries/middleware/guide/rate-limiter) |
+| 恢复并观测请求 | [Recover](/zh-Hans/libraries/middleware/guide/recover)、[RequestID](/zh-Hans/libraries/middleware/guide/request-id)、[RequestLogger](/zh-Hans/libraries/middleware/guide/request-logger) |
+| 设置浏览器边界 | [CORS](/zh-Hans/libraries/middleware/guide/cors)、[CSRF](/zh-Hans/libraries/middleware/guide/csrf)、[Secure](/zh-Hans/libraries/middleware/guide/secure) |
+| 改变传输行为 | [Gzip](/zh-Hans/libraries/middleware/guide/gzip)、[Decompress](/zh-Hans/libraries/middleware/guide/decompress)、[Proxy](/zh-Hans/libraries/middleware/guide/proxy) |
+
+可以通过侧栏或[概览](/zh-Hans/libraries/middleware)中的目录快速定位全部中间件。

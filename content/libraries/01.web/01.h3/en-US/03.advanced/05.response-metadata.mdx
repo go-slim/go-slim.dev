@@ -1,0 +1,86 @@
+---
+title: Response metadata
+description: Record final response status and size without hiding net/http protocol behavior.
+---
+
+# Response metadata
+
+When serving through `App`, handlers receive an `h3.Response`. It wraps `http.ResponseWriter` and records final status, response body bytes, and commit state.
+
+Standalone routers do not wrap the writer automatically. Use `h3.NewResponse` explicitly when metadata is needed outside `App`.
+
+`NewResponse` is idempotent: passing an existing `h3.Response` returns it unchanged rather than layering another set of counters.
+
+## Access metadata
+
+```go
+func responseLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+
+		response := w.(h3.Response)
+		log.Printf(
+			"status=%d size=%d committed=%t",
+			response.Status(),
+			response.Size(),
+			response.Committed(),
+		)
+	})
+}
+```
+
+Use this for access logs, tracing spans, and metrics that need final response details.
+
+Interpret the fields together:
+
+| Field | Meaning |
+| --- | --- |
+| `Status()` | Defaults to 200 even before anything has been written; after commit it is the first final status written through the wrapper. |
+| `Committed()` | Distinguishes an untouched response from an implicit or explicit commit. |
+| `Size()` | Counts bytes successfully written through the wrapper, not bytes merely attempted. |
+
+If a handler writes nothing, `Status()` is still 200 while `Committed()` is false. Logging code should keep that distinction when an untouched response is meaningful.
+
+## Optional capabilities
+
+`Response` exposes protocol capabilities when the underlying writer supports them:
+
+| Method | Behavior |
+| --- | --- |
+| `Flush` | Keeps the `http.Flusher` shape; panics if the underlying writer cannot flush. |
+| `Hijack` | Returns an error when the writer cannot hijack. |
+| `Push` | Returns an error when server push is unsupported. |
+| `Unwrap` | Gives direct access to the underlying writer. |
+
+`Response` always implements the `Flusher`, `Hijacker`, and `Pusher` interfaces for compatibility. A successful type assertion therefore does not prove that the underlying writer supports the operation. `Flush` panics on `http.ErrNotSupported`; `Hijack` and `Push` return errors.
+
+For new code, `http.NewResponseController(w)` can walk through `Unwrap` and access supported protocol operations.
+
+## Interim responses
+
+`Response` records one final status. Write interim responses through `Unwrap`, then write the final response through the wrapper:
+
+```go
+response := w.(h3.Response)
+response.Unwrap().WriteHeader(http.StatusEarlyHints)
+response.WriteHeader(http.StatusOK)
+```
+
+Anything written directly through `Unwrap` bypasses h3's status, size, and commit accounting. That is intentional for interim responses, but the final response should go through `Response` if metadata must remain accurate.
+
+For streaming, commit the final status through the wrapper before the first flush:
+
+```go
+response := w.(h3.Response)
+response.Header().Set("Content-Type", "text/event-stream")
+response.WriteHeader(http.StatusOK)
+response.Flush()
+```
+
+Calling `Flush` or `Hijack` without first writing through the wrapper can change protocol state below it without updating `Committed` or `Size`. Streaming and upgraded-connection metrics should account for that boundary explicitly.
+
+## Concurrency
+
+Like `http.ResponseWriter`, `Response` does not make concurrent writes safe. If multiple goroutines generate content, aggregate or synchronize before writing headers and body.
+
+Only the first final `WriteHeader` call is recorded. Later calls are ignored and logged as a programming error. Set all headers before the first `WriteHeader` or `Write` call.

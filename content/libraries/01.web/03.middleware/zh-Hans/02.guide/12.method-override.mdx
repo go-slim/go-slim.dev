@@ -1,0 +1,50 @@
+---
+title: MethodOverride
+description: 允许受限客户端通过 POST 请求表达其他 HTTP 方法。
+---
+
+# MethodOverride
+
+`MethodOverride` 只对原始 `POST` 请求生效。默认读取 `X-HTTP-Method-Override`，有值时在进入 router 前修改 `Request.Method`。
+
+```go
+handler := middleware.MethodOverride()(mux)
+```
+
+例如：
+
+```http
+POST /documents/42 HTTP/1.1
+X-HTTP-Method-Override: DELETE
+```
+
+router 会把它当作 `DELETE /documents/42` 处理。非 POST 请求永远不会被覆盖。
+
+## 选择来源
+
+```go
+fromForm := middleware.MethodOverrideWithConfig(
+	middleware.MethodOverrideConfig{
+		Getter:  middleware.MethodFromForm("_method"),
+		Skipper: skipAPI,
+	},
+)
+```
+
+内置 getter 包括：
+
+```go
+middleware.MethodFromHeader("X-HTTP-Method-Override")
+middleware.MethodFromQuery("_method")
+middleware.MethodFromForm("_method")
+```
+
+自定义 `Getter` 必须返回标准库预期的精确方法名，例如 `http.MethodDelete`。middleware 不会 trim 空格、转换大小写或验证结果。若读取表单，getter 会在路由前解析表单；下游应复用已解析的 `Form` / `PostForm`，不要再假设 raw body 未被读取。
+
+## 安全边界
+
+覆盖后的方法决定实际操作，认证、授权、CSRF 与审计必须针对这个有效方法执行。因此 `MethodOverride` 应放在它们外层，但只应对确实需要兼容 HTML form 或受限客户端的路由启用。
+
+<Callout title="不要把它当作任意隧道">
+  如果客户端原本就能发送 DELETE、PATCH 等方法，就无需启用覆盖。额外入口会扩大路由与安全策略的测试面。
+</Callout>

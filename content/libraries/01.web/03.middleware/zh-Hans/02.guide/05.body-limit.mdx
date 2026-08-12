@@ -1,0 +1,58 @@
+---
+title: BodyLimit
+description: 限制请求 body 的字节数，并区分已声明长度与流式读取。
+---
+
+# BodyLimit
+
+`BodyLimit` 为请求 body 设置硬上限，防止 handler 无边界地读取客户端输入。
+
+```go
+// 2 MiB
+handler := middleware.BodyLimit(2 << 20)(mux)
+```
+
+上限必须大于零，否则构造函数会 panic。
+
+## 两种拒绝时机
+
+当 `Content-Length` 大于上限时，middleware 会在调用下游前通过 `ErrorHandler` 返回 `413 Request Entity Too Large`。
+
+当请求没有可靠的 `Content-Length` 时，middleware 只能包装 `Request.Body`。读取到恰好上限仍然合法；下一次确认还有数据的读取会返回：
+
+```go
+&http.MaxBytesError{Limit: limitBytes}
+```
+
+此时下游 body consumer 必须把读取错误转换成响应。middleware 已经进入下游后，不能替 consumer 安全地重写响应。
+
+```go
+var input CreateDocument
+if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	var limitErr *http.MaxBytesError
+	if errors.As(err, &limitErr) {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, "invalid JSON", http.StatusBadRequest)
+	return
+}
+```
+
+若声明的 `Content-Length` 已经超过上限，传给 `ErrorHandler` 的也是同一种 `*http.MaxBytesError`，同时附带建议状态码 `413`。
+
+## 配置与顺序
+
+```go
+limit := middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
+	LimitBytes:   2 << 20,
+	Skipper:      skipUploadStream,
+	ErrorHandler: writeAPIError,
+})
+```
+
+把 `BodyLimit` 放在 `BodyDump`、表单解析和 binding 等会主动读取 body 的组件外层。若同时使用 `Decompress`，这里限制的是压缩传输体；还应在 `Decompress` 中另设解压后上限。
+
+<Callout title="不要只信任 Content-Length">
+  客户端可能省略长度或使用 chunked 传输。所有 body consumer 都应检查读取错误。
+</Callout>

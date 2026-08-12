@@ -1,0 +1,61 @@
+---
+title: RequestLogger
+description: 在 handler 完成后记录选定的请求与响应字段。
+---
+
+# RequestLogger
+
+`RequestLogger()` 提供一个可直接使用的 `slog.Default()` 配置，记录 method、URI、status、latency、host、输入/输出长度、User-Agent、remote IP 与 request ID。
+
+```go
+handler := middleware.RequestLogger()(mux)
+```
+
+callback 在下游返回后执行，因此能看到最终状态码、响应大小和耗时。把 logger 放在希望观测的 handler 外层。
+
+## 只选择需要的字段
+
+`RequestLoggerWithConfig` 的字段全部是 opt-in，并要求提供 `LogValuesFunc`：
+
+```go
+logger := middleware.RequestLoggerWithConfig(
+	middleware.RequestLoggerConfig{
+		LogLatency:   true,
+		LogMethod:    true,
+		LogURIPath:   true,
+		LogRoutePath: true,
+		LogRequestID: true,
+		LogStatus:    true,
+		LogResponseSize: true,
+		LogHeaders:     []string{"Content-Type"},
+		LogValuesFunc: func(r *http.Request, v middleware.RequestLoggerValues) error {
+			slog.InfoContext(r.Context(), "request complete",
+				"method", v.Method,
+				"path", v.URIPath,
+				"route", v.RoutePath,
+				"status", v.Status,
+				"latency", v.Latency,
+			)
+			return nil
+		},
+	},
+)
+```
+
+可选字段还包括 protocol、remote IP、host、完整 URI、referer、User-Agent、Content-Length，以及指定的 query、form 与 Header 值。`LogRoutePath` 读取下游 router 写入的 `Request.Pattern`。
+
+## Form 与敏感信息
+
+启用 `LogFormValues` 会在调用下游前执行 `Request.ParseForm`，可能消费 form body。下游应读取 `Request.Form`、`PostForm` 或兼容 binding API，而不是再次依赖 raw body。
+
+只记录白名单字段，并排除 Authorization、Cookie、password、token 和个人信息。Query 与 Referer 也可能包含 secret。
+
+## Callback 错误
+
+`LogValuesFunc` 返回的错误会连同建议状态码 `500` 交给 `ErrorHandler`，但此时响应通常已经提交。默认路径不会覆盖已提交响应；自定义错误处理器同样要先判断是否还能写入。日志 sink 的短暂故障通常更适合降级、计数或旁路处理，而不是改变已经成功的业务响应。
+
+`BeforeNextFunc` 在计时开始后、下游之前执行，可用于补充请求级 logging 状态。所有 callback 都必须并发安全。
+
+<Callout title="先生成 Request ID">
+  使用默认 Header 时，把 RequestID 放在 RequestLogger 外层：`RequestID()(RequestLogger()(mux))`。
+</Callout>

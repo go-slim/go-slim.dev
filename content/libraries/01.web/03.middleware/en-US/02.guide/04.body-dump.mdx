@@ -1,0 +1,55 @@
+---
+title: BodyDump
+description: Capture request and response bodies for controlled debugging, auditing, or tests.
+---
+
+# BodyDump
+
+`BodyDump` reads and restores the complete request body before calling the next handler, while copying the response body written downstream. Its callback receives both snapshots after the request completes.
+
+## Quick start
+
+```go
+dump := middleware.BodyDump(func(
+	r *http.Request,
+	requestBody, responseBody []byte,
+) {
+	slog.Info("http body",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"request_bytes", len(requestBody),
+		"response_bytes", len(responseBody),
+	)
+})
+
+handler := dump(mux)
+```
+
+## Limit captured data
+
+```go
+dump := middleware.BodyDumpWithConfig(middleware.BodyDumpConfig{
+	Handler:          recordPayload,
+	MaxRequestBytes:  64 << 10,
+	MaxResponseBytes: 64 << 10,
+	Skipper:          skipBinaryRoutes,
+	ErrorHandler:     writeAPIError,
+})
+```
+
+Both limits default to 5 MiB; `-1` disables truncation. These limits truncate only the copies passed to the callback. `BodyDump` still reads the entire request body into memory, so bound total input with an outer `BodyLimit`:
+
+```go
+handler := middleware.BodyLimit(2 << 20)(dump(mux))
+```
+
+## Boundaries
+
+- The callback runs after the downstream handler returns and may be called concurrently.
+- The response bytes passed to the callback are an independent copy and may be retained.
+- A request-body read failure bypasses the downstream handler and enters `ErrorHandler`.
+- Do not record passwords, tokens, cookies, personal data, or large binary content by default. Filter or redact by route and content type first.
+
+<Callout title="Keep body logging off by default in production">
+  Prefer lengths, content types, hashes, or domain events. Capture complete bodies only under an explicit retention and access policy.
+</Callout>

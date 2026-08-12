@@ -1,0 +1,29 @@
+---
+title: WWWRedirect
+description: Add a www host prefix while retaining the current request scheme.
+---
+
+# WWWRedirect
+
+`WWWRedirect` redirects when the host does not start with `www.`, preserving the current scheme, path, and query string.
+
+```go
+handler := middleware.WWWRedirect()(mux)
+```
+
+For example, `https://example.com/docs?q=go` becomes `https://www.example.com/docs?q=go`. A request whose host already has `www.` continues downstream.
+
+## Configuration
+
+```go
+redirect := middleware.WWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+The default status is 301, and the valid range is 300 through 308. This middleware does not upgrade HTTP to HTTPS; use `HTTPSWWWRedirect` to normalize both.
+
+Behind a proxy, the current scheme may be inferred from forwarding headers. Client-supplied values must first be removed at a trusted edge.

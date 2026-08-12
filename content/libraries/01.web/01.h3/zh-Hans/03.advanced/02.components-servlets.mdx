@@ -1,0 +1,137 @@
+---
+title: Components 与 servlets
+description: 用一个 h3 component 边界打包 routes 和后台资源。
+---
+
+# Components 与 servlets
+
+`Component` 组合 mount prefix 和 child router。如果同一个值也实现 `Servlet`，h3 会把它纳入 app 的启动和停止流程。
+
+当一个包同时拥有 routes 和资源时，使用 component：
+
+- admin 模块拥有 `/admin` routes 和后台 indexer；
+- worker 模块拥有 `/workers/status` 和 queue consumer；
+- metrics 模块拥有 `/metrics` 和 scraper lifecycle。
+
+## 定义 component
+
+```go
+type workerComponent struct {
+	h3.Component
+	lifecycle sync.Mutex
+	stop      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func newWorkerComponent() *workerComponent {
+	component := &workerComponent{
+		Component: h3.NewComponent("/workers"),
+	}
+	component.Router().HandleFunc("GET /status", component.status)
+	return component
+}
+
+func (c *workerComponent) status(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte("ok"))
+}
+```
+
+应嵌入 `h3.Component`，而不是 `*h3.Component`。`Component` 是接口，`NewComponent` 返回该接口的实现。
+
+`NewComponent` 返回的值只拥有 prefix 和 router，它本身不实现 `Servlet`。Lifecycle participation 由结构决定：传给 `Register` 的 concrete value 必须自己同时提供 `Start(context.Context) error` 和 `Stop() error`。
+
+## 添加生命周期
+
+Lifecycle state 应能跨 app 运行轮次复用。等待 goroutine 时继续持有 lifecycle lock，可以防止新一轮启动与上一轮 cleanup 重叠：
+
+```go
+func (c *workerComponent) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop != nil {
+		return errors.New("worker is already started")
+	}
+
+	stop := make(chan struct{})
+	c.stop = stop
+	c.wg.Add(1)
+	// Start context 用于启动检查和回滚。
+	go func() {
+		defer c.wg.Done()
+		c.run(stop)
+	}()
+	return nil
+}
+
+func (c *workerComponent) Stop() error {
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop == nil {
+		return nil
+	}
+
+	close(c.stop)
+	c.wg.Wait()
+	c.stop = nil
+	return nil
+}
+```
+
+`Start` 用于初始化资源或执行启动检查。`Stop` 应停止后台工作并释放资源。两者都应有边界、保持显式，并且 `Stop` 应幂等。
+
+如果启动需要 context-aware 检查，应在启动长期工作前使用 `Start` context。不要把它当作 worker 的运行期取消信号。
+
+除非每次成功 `Start` 都安全重置，否则不要用一个永久 `sync.Once` 关闭 channel。h3 支持同一 app 在 `Stop` 后再次启动，component lifecycle state 必须支持同样的序列。
+
+## 注册 ownership
+
+```go
+app := h3.New(h3.Options{Addr: ":8080"})
+app.Register(newWorkerComponent())
+```
+
+只在 app 停止时注册 components。重复 component prefix 会 panic。这比 `Router.Mount` 更严格，因为 component 可能拥有后台资源；只替换 route 但留下旧资源，会拆开 ownership。
+
+Prefix 会按 path 规范化：`api`、`/api`、`/api/` 指向同一 mount location。空 prefix、nil component、重复 normalized prefix 或在 app 运行中注册都会 panic。
+
+## 注册没有路由的 servlet
+
+数据库连接、queue consumer 或定时任务可能只有 lifecycle，不拥有任何 route。此时直接注册 `Servlet`，不要为它创建空的 Component：
+
+```go
+type consumerServlet struct {
+	consumer *Consumer
+}
+
+func (s *consumerServlet) Start(ctx context.Context) error {
+	consumer, err := OpenConsumer(ctx)
+	if err != nil {
+		return err
+	}
+	s.consumer = consumer
+	return nil
+}
+
+func (s *consumerServlet) Stop() error {
+	if s.consumer == nil {
+		return nil
+	}
+	err := s.consumer.Close()
+	s.consumer = nil
+	return err
+}
+
+app.RegisterServlet(&consumerServlet{})
+```
+
+`Register(Component)` 负责 route ownership，并自动登记同时实现 `Servlet` 的 component；`RegisterServlet(Servlet)` 只登记 lifecycle。不要将同一个对象同时传给两个方法，否则它会被启动、停止两次。
+
+## 注册顺序
+
+`Register` 与 `RegisterServlet` 共享同一条 lifecycle 序列。Servlet 按登记顺序启动，并按反向顺序停止。基础依赖先注册，依赖它们的 component 后注册。
+
+后续 servlet 启动失败时，已经启动的 servlets 会按反向顺序回滚。因此 component 在 `Start` 返回 error 时不能遗留 live resource，`Stop` 也应在返回前等待所有 owned goroutines 退出。

@@ -1,0 +1,55 @@
+---
+title: BodyDump
+description: 捕获请求与响应 body，用于受控的调试、审计或测试。
+---
+
+# BodyDump
+
+`BodyDump` 在调用下游前读取并恢复完整请求 body，同时复制下游写出的响应 body。请求完成后，callback 会同时收到两份快照。
+
+## 快速开始
+
+```go
+dump := middleware.BodyDump(func(
+	r *http.Request,
+	requestBody, responseBody []byte,
+) {
+	slog.Info("http body",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"request_bytes", len(requestBody),
+		"response_bytes", len(responseBody),
+	)
+})
+
+handler := dump(mux)
+```
+
+## 限制捕获量
+
+```go
+dump := middleware.BodyDumpWithConfig(middleware.BodyDumpConfig{
+	Handler:          recordPayload,
+	MaxRequestBytes:  64 << 10,
+	MaxResponseBytes: 64 << 10,
+	Skipper:          skipBinaryRoutes,
+	ErrorHandler:     writeAPIError,
+})
+```
+
+两个上限都默认为 5 MiB；`-1` 表示不截断。上限只截断传给 callback 的副本，`BodyDump` 仍会把完整请求 body 读入内存。因此需要先用 `BodyLimit` 约束总输入：
+
+```go
+handler := middleware.BodyLimit(2 << 20)(dump(mux))
+```
+
+## 适用边界
+
+- callback 在下游 handler 返回后执行，并可能被多个请求并发调用。
+- callback 收到的响应 bytes 是独立副本，可以在返回后保留。
+- 读取请求 body 失败时不会调用下游，而是进入 `ErrorHandler`。
+- 不要默认记录密码、token、Cookie、个人数据或大型二进制内容；先按路由和内容类型过滤或脱敏。
+
+<Callout title="生产环境默认关闭正文日志">
+  优先记录长度、内容类型、哈希或业务事件。只有在明确的数据保留与访问策略下，才捕获完整正文。
+</Callout>

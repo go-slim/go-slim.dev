@@ -1,0 +1,42 @@
+---
+title: Gzip
+description: Negotiate Accept-Encoding and compress HTTP responses.
+---
+
+# Gzip
+
+`Gzip` negotiates response compression through `Accept-Encoding`. When the client accepts gzip, it writes `Content-Encoding: gzip`, maintains `Vary: Accept-Encoding`, and removes the now-inaccurate `Content-Length`.
+
+```go
+handler := middleware.Gzip()(mux)
+```
+
+## Compression level and threshold
+
+```go
+gzipResponse := middleware.GzipWithConfig(middleware.GzipConfig{
+	Level:     gzip.BestSpeed,
+	MinLength: 1024,
+	Skipper:   skipStreamingOrEncoded,
+})
+```
+
+- `Level` defaults to `gzip.DefaultCompression` (`-1`). The valid range is `-2` through `9`; values outside it panic during construction.
+- `MinLength` defaults to `0`. With a threshold, shorter responses are written uncompressed; negative values normalize to zero.
+- Calling `Flush` before the threshold is reached commits to gzip because the middleware can no longer wait for the complete size.
+
+## Choose responses to compress
+
+`Gzip` does not automatically exclude responses by content type. Use `Skipper` for already compressed images and archives, resources with an existing `Content-Encoding`, and latency-sensitive SSE or streaming endpoints.
+
+```go
+func skipStreamingOrEncoded(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/events/")
+}
+```
+
+If a CDN or reverse proxy serves precompressed static assets, assigning content encoding to that edge layer is often simpler and makes variant caching easier.
+
+<Callout title="Compression spends CPU">
+  Do not optimize only for byte size. Test compression level and threshold against representative payloads, throughput, and latency.
+</Callout>

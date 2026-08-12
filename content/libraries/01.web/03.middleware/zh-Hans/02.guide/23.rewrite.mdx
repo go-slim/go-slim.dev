@@ -1,0 +1,47 @@
+---
+title: Rewrite
+description: 在服务端按 wildcard 或正则规则重写请求 URL。
+---
+
+# Rewrite
+
+`Rewrite` 在调用下游前修改请求 URL，不向客户端发送 redirect。
+
+```go
+rewrite := middleware.Rewrite(map[string]string{
+	"/old":              "/new",
+	"/api/*":            "/$1",
+	"/users/*/orders/*": "/user/$1/order/$2",
+})
+
+handler := rewrite(mux)
+```
+
+`*` 捕获值可在目标中用 `$1`、`$2` 引用。重写只执行一次，不会反复把结果送回规则集。
+
+## 正则规则
+
+```go
+rewrite := middleware.RewriteWithConfig(middleware.RewriteConfig{
+	RegexRules: map[*regexp.Regexp]string{
+		regexp.MustCompile(`^/v1/items/(\d+)$`): "/items/$1",
+	},
+	ErrorHandler: writeAPIError,
+})
+```
+
+缺少 `Rules` 和 `RegexRules` 会在构造时 panic。构造函数会 clone 配置 map，之后修改原 map 不会影响现有 middleware。
+
+## 规则必须互斥
+
+两类规则最终合并到 map，Go 的 map 遍历顺序不确定。不要通过“更具体的规则先写”表达优先级；应保证任意 RequestURI 最多匹配一条规则。
+
+匹配输入是 `RequestURI`，设计 pattern 时必须考虑 query string。目标 URL 无法解析时，请求会按 `400 Bad Request` 进入 `ErrorHandler`。
+
+## Rewrite 与 Redirect
+
+Rewrite 适合内部兼容旧路径、去掉代理前缀或把外部 URL 映射到 router 路径，客户端地址栏不会改变。若 canonical URL 应被客户端、搜索引擎和缓存看到，应使用 redirect。
+
+<Callout title="不要隐藏复杂路由模型">
+  少量、互斥的兼容规则最容易维护。大量重写通常说明 router、API versioning 或 proxy 边界需要重新设计。
+</Callout>

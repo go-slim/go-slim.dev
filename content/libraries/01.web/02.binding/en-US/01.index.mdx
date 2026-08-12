@@ -1,0 +1,98 @@
+---
+title: binding
+sidebarTitle: Overview
+description: Read path, query, header, form, and body input from net/http requests.
+icon: braces
+---
+
+# binding
+
+`go-slim.dev/binding` converts input from `*http.Request` into Go structs or concrete types. It builds directly on `net/http` and does not require a particular router or web framework.
+
+```sh
+go get go-slim.dev/binding
+```
+
+The current module declares Go 1.25.5. Its runtime dependencies are the standard library and `go-slim.dev/nego`.
+
+<Callout type="info" title="Responsibility boundary">
+  binding only reads and converts request input. Routing, semantic validation,
+  authorization, HTTP status selection, and response rendering remain with the
+  application.
+</Callout>
+
+## Choose an API
+
+The package offers three handler-facing styles plus standalone string conversion.
+
+| Need | API |
+| --- | --- |
+| Bind several sources into one input struct | `new(binding.DefaultBinder).Bind` |
+| Bind only path, query, header, or body input | `BindPathValues`, `BindQueryParams`, `BindHeaders`, `BindBody` |
+| Return one or two concrete values directly | `PathParam`, `QueryParam`, `FormValue` |
+| Read several fields from the same source in one chain | `PathValuesBinder`, `QueryParamsBinder`, `FormFieldBinder` |
+| Convert strings without HTTP | `ParseValue`, `ParseValues` |
+
+Most handlers need only one style. Use an input struct for a larger contract, generic functions for a few values, and the fluent API when several conversions should share error collection.
+
+## Input sources
+
+| Source | Struct tag or entry point |
+| --- | --- |
+| Path value | `param`, `PathParam` |
+| URL query | `query`, `QueryParam`, `QueryParams` |
+| Request header | `header`, `BindHeaders` |
+| Form field | `form`, `FormValue`, `FormValues` |
+| JSON | `json`, `BindBody` |
+| XML | `xml`, `BindBody` |
+| Multipart file | `form`, `BindBody` |
+
+## Two minimal examples
+
+For several fields, define an input struct containing only client-writable values:
+
+```go
+type updateUserInput struct {
+	ID   uint   `param:"id"`
+	Name string `json:"name"`
+}
+
+var input updateUserInput
+if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+	return err
+}
+```
+
+For a few parameters, return typed values directly:
+
+```go
+id, err := binding.PathParam[uint](r, "id")
+if err != nil {
+	return err
+}
+
+page, err := binding.QueryParamOr(r, "page", 1)
+```
+
+## Is Middleware required?
+
+Usually not. Path values matched by the standard library router, query values, headers, and request bodies can all bind without it.
+
+`binding.Middleware` primarily caches one `URL.Query()` result, configures multipart memory use, and supports enumerable values added by `binding.SetPathValue`. Only the last capability strictly requires Middleware. See [Request lifecycle](/libraries/binding/advanced/middleware).
+
+## Security model
+
+Do not bind requests directly into database entities or authorization models:
+
+```go
+type updateUserInput struct {
+	DisplayName string `json:"display_name"`
+}
+```
+
+Bind into a dedicated input type, then validate, authorize, and map to domain values. Successful conversion means only that input fits the target Go type; it does not make the value valid for the business operation.
+
+## Continue reading
+
+- [Guide](/libraries/binding/guide) covers quick start, struct binding, typed values, request bodies, and files.
+- [Advanced](/libraries/binding/advanced) covers error contracts, Middleware, caches, limits, and repeatability.

@@ -1,0 +1,26 @@
+---
+title: Advanced
+description: Work with h3 components, compiled routes, TLS/server options, and response metadata.
+---
+
+# Advanced
+
+Advanced h3 usage is mostly about ownership boundaries:
+
+- who owns route declarations;
+- who owns background resources;
+- who owns the HTTP server lifecycle;
+- who owns protocol-level response behavior.
+
+These topics matter once an application is split into modules or needs tighter production control.
+
+## Topics
+
+| Page | Focus |
+| --- | --- |
+| [Components and servlets](/libraries/h3/advanced/components-servlets) | Package route trees with resources that start and stop with the app. |
+| [Route compilation](/libraries/h3/advanced/route-compilation) | Use immutable snapshots and `CompileRoutes` deliberately. |
+| [Server options and TLS](/libraries/h3/advanced/server-options-tls) | Configure timeouts, protocols, TLS, and stopped callbacks. |
+| [Response metadata](/libraries/h3/advanced/response-metadata) | Read final status/size while keeping advanced protocol behavior available. |
+| [Testing and production](/libraries/h3/advanced/testing-production) | Verify routes and lifecycle, then review production ownership and shutdown risks. |
+| [API reference](/libraries/h3/advanced/api-reference) | Scan the exported Router, App, lifecycle, options, and response APIs. |

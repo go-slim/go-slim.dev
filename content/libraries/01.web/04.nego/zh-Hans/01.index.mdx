@@ -1,0 +1,73 @@
+---
+title: nego
+sidebarTitle: 概览
+description: 匹配请求 Content-Type，并协商输出的 HTTP 表示。
+icon: arrows-exchange
+---
+
+# nego
+
+`go-slim.dev/nego` 回答两个 HTTP 问题：客户端提交了哪种表示，以及服务端可以返回哪种表示？它只解释 field value，不读取 body、不写响应、不绑定数据，也不选择状态码。
+
+## 安装
+
+```sh
+go get go-slim.dev/nego
+```
+
+模块要求 Go 1.25.5 或更高版本，运行时只依赖标准库。
+
+## 两个方向
+
+| 方向 | Request field | API |
+| --- | --- | --- |
+| 判断提交内容 | `Content-Type` | `TypeIs` |
+| 选择响应表示 | `Accept` | `Negotiator.Accepts`、`Negotiator.Type` |
+| 选择字符集 | `Accept-Charset` | `Negotiator.Charset` |
+| 选择 content coding | `Accept-Encoding` | `Negotiator.Encoding` |
+| 选择语言 | `Accept-Language` | `Negotiator.Language` |
+
+```go
+var negotiator = nego.New(128)
+
+func handle(w http.ResponseWriter, r *http.Request) {
+	input, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json", "xml")
+	if err != nil || input == "" {
+		http.Error(w, "unsupported content", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	output, err := negotiator.Type(r, "json", "xml")
+	if err != nil {
+		http.Error(w, "server configuration error", http.StatusInternalServerError)
+		return
+	}
+	if output == "" {
+		http.Error(w, "no acceptable representation", http.StatusNotAcceptable)
+		return
+	}
+
+	w.Header().Add(nego.HeaderVary, nego.HeaderAccept)
+	// 输入解码和输出渲染由应用代码完成。
+}
+```
+
+## 包契约
+
+- Media-type parameter 会被解析和校验；`TypeIs` 按 type/subtype 选择 decoder，不按参数选择。
+- 缺失 `Accept` 等价于 `*/*`，非法 client list member 会被逐项忽略。
+- 非法服务端 offer 会返回错误，因为这是配置缺陷。
+- `q=0`、media parameter、`identity` 与 RFC 4647 language filtering 保留各自协议语义。
+- 同一个 `Negotiator` 可以安全并发复用。
+- `Content-Type`、`Content-Encoding`、`Content-Language`、`Vary` 和最终 status 都由应用设置。
+
+## 继续阅读
+
+- [匹配 Content-Type](/zh-Hans/libraries/nego/guide/matching-content-type) 介绍 alias、wildcard expectation、参数和 415 策略。
+- [协商响应表示](/zh-Hans/libraries/nego/guide/negotiating-representations) 介绍 quality、specificity、token field 和语言匹配。
+- [缓存与应用策略](/zh-Hans/libraries/nego/advanced/caching-and-policy) 介绍复用、`Vary`、错误映射和完整 handler flow。
+
+<Callout title="传输策略留在 nego 外部">
+  空匹配是协议结果，不是 HTTP 响应。Endpoint 决定它表示 406、415、
+  fallback representation，还是某条 route-specific rule。
+</Callout>

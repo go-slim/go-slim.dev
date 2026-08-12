@@ -1,0 +1,56 @@
+---
+title: CSRF
+description: 使用 Fetch Metadata 与同步 token 保护带 Cookie 的状态变更请求。
+---
+
+# CSRF
+
+`CSRF` 优先使用浏览器的 Fetch Metadata 判断请求来源；无法据此确认安全时，再使用 Cookie 与独立提交值组成的 synchronizer token。
+
+```go
+handler := middleware.CSRF()(mux)
+```
+
+默认 token Cookie 名为 `_csrf`，提交值从 `X-CSRF-Token` 读取，token 长度为 32，Cookie 有效期为 86400 秒。
+
+## 把 token 交给客户端
+
+```go
+func form(w http.ResponseWriter, r *http.Request) {
+	token := middleware.CSRFToken(r)
+	// 把 token 写入 HTML hidden input 或应用 bootstrap 数据。
+}
+```
+
+客户端在 POST、PUT、PATCH、DELETE 等不安全方法中，把该值写入 `X-CSRF-Token`。GET、HEAD、OPTIONS 与 TRACE 不要求提交 token。
+
+如果 Fetch Metadata 已证明请求安全，`CSRFToken` 返回 `middleware.CSRFUsingSecFetchSite` 标记，而不生成同步 token。应用不应把这个标记持久化为实际凭证。
+
+## Cookie 与来源配置
+
+```go
+csrf := middleware.CSRFWithConfig(middleware.CSRFConfig{
+	TrustedOrigins:  []string{"https://admin.example.com"},
+	CookieName:      "_csrf",
+	CookiePath:      "/",
+	CookieSecure:    true,
+	CookieHTTPOnly:  true,
+	CookieSameSite:  http.SameSiteLaxMode,
+	TokenLookup:     "header:X-CSRF-Token",
+	ErrorHandler:    writeAPIError,
+})
+```
+
+`TrustedOrigins` 按完整 `scheme://host[:port]` 精确匹配。`SameSite=None` 会自动强制 `CookieSecure=true`。
+
+`TokenLookup` 支持通用 extractor 语法，但绝不能从 `CookieName` 本身读取提交值：让 Cookie 与自身比较不会提供 CSRF 防护。表单应用可以改为 `form:_csrf_token`，API 通常更适合 Header。
+
+## 拒绝语义
+
+- 缺少或无法解析提交值：`400 Bad Request`。
+- token 存在但不匹配：`403 Forbidden`，可用 `errors.Is(err, middleware.ErrCSRFInvalid)` 识别。
+- `same-site` 或 `cross-site` Fetch Metadata 请求默认会被拒绝；确有特殊信任模型时，才使用 `TrustedOrigins` 或 `AllowSecFetchSiteFunc` 放行。
+
+<Callout title="适用于基于 Cookie 的认证">
+  浏览器自动附带 Cookie 时才形成典型 CSRF 风险。若 API 只接受脚本显式设置的 bearer token，先确认威胁模型，再决定是否需要 CSRF。
+</Callout>

@@ -1,0 +1,59 @@
+---
+title: Static
+description: 从操作系统目录或 fs.FS 提供静态文件、目录索引与 SPA fallback。
+---
+
+# Static
+
+`Static` 从指定根目录提供文件。未找到文件时，默认继续调用下游 handler。
+
+```go
+files := middleware.Static("public")(http.NotFoundHandler())
+http.Handle("/", files)
+```
+
+默认 index 为 `index.html`，目录浏览和 HTML5 fallback 都关闭。
+
+## 挂载到 URL 前缀
+
+已知前缀时，优先使用标准库明确移除它：
+
+```go
+assets := middleware.StaticWithConfig(middleware.StaticConfig{
+	Filesystem: os.DirFS("./public"),
+	Root:       ".",
+})
+
+mux.Handle(
+	"/assets/",
+	http.StripPrefix("/assets", assets(http.NotFoundHandler())),
+)
+```
+
+`Filesystem` 为 nil 时，middleware 使用 `os.DirFS(Root)`；提供 `fs.FS` 后，`Root` 解释为该 filesystem 内的相对目录。最终文件必须实现 `io.ReadSeeker`，因为内容由 `http.ServeContent` 发送。
+
+`IgnoreBase` 也能移除第一个 URL segment，但固定挂载点使用 `http.StripPrefix` 更清楚。
+
+## SPA 与目录浏览
+
+```go
+spa := middleware.StaticWithConfig(middleware.StaticConfig{
+	Root:  "dist",
+	Index: "index.html",
+	HTML5: true,
+})
+```
+
+`HTML5` 开启后，缺失路径直接提供根目录 index，不再调用 next，适合由客户端 router 接管的 SPA。`Browse` 开启后，目录没有 index 时生成目录列表；不要在包含私有文件的生产目录启用。
+
+## 路径安全
+
+安全默认值不解码 URL path，并拒绝包含编码 slash/backslash（`%2f`、`%5c`）的路径，避免 route ACL 与文件系统路径对同一输入产生不同解释。
+
+只有确实要提供带编码字符的文件名，且权限控制不依赖 escaped route 形态时，才设置 `EnablePathUnescaping: true`。废弃字段 `DisablePathUnescaping` 已被忽略。
+
+模板解析、filesystem 子目录与配置错误会在构造时 panic；请求期的文件系统、解码和渲染错误进入 `ErrorHandler`。
+
+<Callout title="静态根目录仍是安全边界">
+  只把明确可公开的构建产物放入该 fs.FS。不要依赖文件名约定或目录列表开关隔离 secret。
+</Callout>

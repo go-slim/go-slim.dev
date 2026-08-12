@@ -1,0 +1,100 @@
+---
+title: 使用前须知
+description: 在组合 middleware 前明确顺序、跳过规则、错误响应与并发边界。
+---
+
+# 使用前须知
+
+middleware 的单项配置通常很短，真正容易出错的是组合边界。开始选用具体 middleware 前，先确定下面几件事。
+
+## 构造阶段与请求阶段
+
+构造函数把无效配置视为程序错误，并可能直接 panic。例如缺少必需的 validator、store 或 balancer。应在服务启动时构造完整 handler graph，让部署在接收流量前失败。
+
+请求期错误则交给 `ErrorHandler`：
+
+```go
+type ErrorHandler func(http.ResponseWriter, *http.Request, int, error)
+```
+
+其中整数是 middleware 建议的 HTTP 状态码。应用仍拥有最终响应，可以按具体错误或自身响应策略改写状态码。原始错误可用于日志，也可通过 `errors.Is` / `errors.As` 检查 `ErrInvalidCredentials`、`ErrKeyMissing`、`ErrCSRFInvalid`、`ErrRateLimitExceeded`、`ErrProxyFailure` 等 middleware 专用错误。
+
+错误处理器负责写出完整响应，并且不应再次调用下游 handler。`DefaultErrorHandler` 只写标准状态文本，刻意不向客户端暴露底层错误。JSON API 可以在这里统一响应结构：
+
+```go
+func writeAPIError(
+	w http.ResponseWriter,
+	_ *http.Request,
+	status int,
+	err error,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": status,
+		"error":  publicMessage(err),
+	})
+}
+```
+
+应把 `status` 视为建议值，而不是再从宽泛的 sentinel error 反推状态码。若应用决定改写它，公开状态、内部日志与重试行为需要保持一致。
+
+## 先画出执行顺序
+
+```go
+handler := middleware.Recover()(
+	middleware.RequestID()(
+		middleware.RequestLogger()(
+			middleware.BodyLimit(2 << 20)(mux),
+		),
+	),
+)
+```
+
+请求从外向内执行，响应从内向外返回。一个常用的起点是：
+
+```text
+Recover
+└─ RequestID
+   └─ RequestLogger
+      └─ CORS / Secure
+         └─ BodyLimit
+            └─ Decompress
+               └─ Auth / CSRF / RateLimiter
+                  └─ Gzip
+                     └─ Router
+```
+
+这不是必须照抄的全局模板。顺序应由语义决定：`RequestID` 要包在 logger 外才能被记录；`BodyLimit` 要包在会读取 body 的 middleware 外；`Recover` 通常放在最外层；`ContextTimeout` 不适合流式响应。
+
+## 用 Skipper 表达适用范围
+
+大多数配置提供：
+
+```go
+type Skipper func(*http.Request) bool
+```
+
+返回 `true` 时跳过当前 middleware。默认实现永不跳过。相比在 callback 内悄悄退出，把健康检查、公开路由或流式端点的例外集中写成 `Skipper`，更容易审查。
+
+```go
+skipHealth := func(r *http.Request) bool {
+	return r.URL.Path == "/health"
+}
+```
+
+## 配置与回调必须可并发使用
+
+同一个 handler 会同时服务多个请求。构造完成后，不要继续修改 config、map 或 slice；validator、logger callback、自定义 store、transport 与 balancer 也必须并发安全。
+
+请求级数据应放在 request context、局部变量或专用并发结构里，不要写回共享配置。
+
+## ResponseWriter 的可选能力
+
+捕获、压缩或代理响应的 middleware 会包装 `http.ResponseWriter`。包内 wrapper 通过 `Unwrap` 配合 `http.ResponseController` 暴露底层能力，但 `Flush`、`Hijack`、deadline 等能力仍取决于真实 writer。
+
+调用可选能力时要处理 `http.ErrNotSupported`。WebSocket、SSE 和长时间流式响应还应逐项确认 middleware 是否会缓冲、压缩或设置超时。
+
+<Callout title="从最小集合开始">
+  只启用当前路由确实需要的策略。新增 middleware 时，同时记录它的放置位置、跳过条件、错误格式和信任边界。
+</Callout>

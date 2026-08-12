@@ -1,0 +1,26 @@
+---
+title: 进阶
+description: 使用 h3 components、compiled routes、TLS/server options 和 response metadata。
+---
+
+# 进阶
+
+h3 的进阶用法主要围绕 ownership 边界：
+
+- 谁拥有 route declarations；
+- 谁拥有后台资源；
+- 谁拥有 HTTP server lifecycle；
+- 谁拥有协议层 response 行为。
+
+当应用拆成多个模块，或需要更严格的生产控制时，这些主题会变得重要。
+
+## 主题
+
+| 页面 | 重点 |
+| --- | --- |
+| [Components 与 servlets](/zh-Hans/libraries/h3/advanced/components-servlets) | 将 route tree 和随 app 启停的资源打包到一起。 |
+| [Route compilation](/zh-Hans/libraries/h3/advanced/route-compilation) | 有意识地使用不可变 snapshots 和 `CompileRoutes`。 |
+| [Server options 与 TLS](/zh-Hans/libraries/h3/advanced/server-options-tls) | 配置 timeouts、protocols、TLS 和 stopped callback。 |
+| [Response metadata](/zh-Hans/libraries/h3/advanced/response-metadata) | 读取最终 status/size，同时保留高级协议行为。 |
+| [测试与生产检查](/zh-Hans/libraries/h3/advanced/testing-production) | 验证 routes 和 lifecycle，并检查生产环境的 ownership 与关闭风险。 |
+| [API 速查](/zh-Hans/libraries/h3/advanced/api-reference) | 快速查阅 Router、App、lifecycle、options 和 response 的导出 API。 |

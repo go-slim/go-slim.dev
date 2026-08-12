@@ -1,0 +1,55 @@
+---
+title: BasicAuth
+description: 使用 HTTP Basic 凭证保护 handler，并安全验证用户名与密码。
+---
+
+# BasicAuth
+
+`BasicAuth` 从 `Authorization: Basic ...` 读取用户名和密码。验证成功时调用下游 handler；凭证缺失或无效时返回 `401 Unauthorized`，并写入 `WWW-Authenticate`。
+
+## 快速开始
+
+```go
+import "crypto/subtle"
+
+auth := middleware.BasicAuth(func(
+	r *http.Request,
+	username, password string,
+) (bool, error) {
+	userOK := subtle.ConstantTimeCompare(
+		[]byte(username), []byte(os.Getenv("ADMIN_USERNAME")),
+	) == 1
+	passOK := subtle.ConstantTimeCompare(
+		[]byte(password), []byte(os.Getenv("ADMIN_PASSWORD")),
+	) == 1
+	return userOK && passOK, nil
+})
+
+http.Handle("/admin/", auth(adminHandler))
+```
+
+Validator 是必需项；传入 `nil` 会在构造时 panic。比较凭证时使用 `crypto/subtle.ConstantTimeCompare`，不要使用普通字符串相等判断。
+
+## 完整配置
+
+```go
+auth := middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
+	Realm:             "Admin area",
+	AllowedCheckLimit: 1,
+	Validator:         validateCredential,
+	Skipper:           skipHealth,
+	ErrorHandler:      writeAPIError,
+})
+```
+
+- `Realm` 默认为 `Restricted`，会出现在认证 challenge 中。
+- `AllowedCheckLimit` 默认为 `1`，限制一次请求最多检查多少个 Basic header 值。
+- `ErrorHandler` 处理格式错误的凭证和 validator 返回的错误。凭证缺失或被拒绝时传入 `ErrInvalidCredentials` 与建议状态码 `401`；Base64 格式错误建议 `400`，validator 错误则建议 `500`。
+
+## 多个 Authorization 值
+
+middleware 会跳过其他认证 scheme，并依次检查匹配 `Basic` 的 header 值，直到验证成功或达到 `AllowedCheckLimit`。错误的 Base64 属于客户端输入错误；缺少冒号或 validator 返回 `false` 则视为无效凭证。
+
+<Callout title="不要把认证当作授权">
+  BasicAuth 只确认凭证是否有效。资源所有权、角色和操作权限仍应在认证之后单独判断。
+</Callout>

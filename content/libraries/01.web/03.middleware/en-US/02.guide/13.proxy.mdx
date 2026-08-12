@@ -1,0 +1,66 @@
+---
+title: Proxy
+description: Forward requests with the standard ReverseProxy, replaceable balancers, and controlled retries.
+---
+
+# Proxy
+
+`Proxy` uses `httputil.ReverseProxy` to forward a request to an upstream selected by a balancer. It supports ordinary responses, streaming, and protocol upgrades.
+
+## A pool of upstreams
+
+```go
+targetURL, err := url.Parse("http://127.0.0.1:9000")
+if err != nil {
+	log.Fatal(err)
+}
+
+balancer := middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{
+	{Name: "primary", URL: targetURL},
+})
+
+handler := middleware.Proxy(balancer)(fallback)
+```
+
+`NewRandomBalancer` is also available. Built-in balancers are concurrent-safe. `AddTarget` rejects nil targets, missing URLs, and duplicate names. Treat a target's `URL` and `Meta` as immutable while serving.
+
+## Rewriting, retries, and transport
+
+```go
+proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
+	Balancer:  balancer,
+	RetryCount: 2,
+	Rewrite: map[string]string{
+		"/api/*": "/$1",
+	},
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 5 * time.Second,
+	},
+	ModifyResponse: inspectUpstreamResponse,
+	ErrorHandler:   writeAPIError,
+})
+```
+
+`RetryCount` is the number of additional attempts after the first failure and cannot be negative. By default, only proxy-attempt failures wrapping `ErrProxyFailure` are retried. If all attempts fail, `ErrorHandler` receives the final error with the recommended status `502 Bad Gateway`. HTTP 4xx and 5xx returned by an upstream are completed responses and are not retried. A request with a body is replayable only when `Request.GetBody` is available.
+
+`Rewrite` and `RegexRewrite` change paths before proxying. Rules must not overlap because map iteration order is unspecified. A custom `Transport` or `ModifyResponse` hook can obtain the selected target with `ProxyTargetFromRequest(req)`.
+
+## Forwarded-header trust boundary
+
+The middleware adds `X-Real-IP` and `X-Forwarded-Proto` only when absent; it does not replace existing values. If public clients can reach the service, a trusted edge must remove client-supplied forwarding headers before requests reach this middleware.
+
+## Custom balancers
+
+```go
+type ProxyBalancer interface {
+	AddTarget(*ProxyTarget) bool
+	RemoveTarget(name string) bool
+	Next(*http.Request) (*ProxyTarget, error)
+}
+```
+
+Implementations must be concurrent-safe. No available target, a balancer error, or a transport failure produces `502 Bad Gateway` by default. If the client context is canceled, the proxy ends without writing an additional middleware error response.
+
+<Callout title="Bound your Transport">
+  The default Transport may not match your upstream latency budget. Set connection, TLS, response-header, and idle-connection policy explicitly, then monitor failure rates by target.
+</Callout>

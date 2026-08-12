@@ -1,0 +1,122 @@
+---
+title: Routing
+description: Build route trees, mount routers, and publish immutable routing snapshots.
+---
+
+# Routing
+
+`Router` records route declarations, middleware, and child routers. `Build` compiles the complete tree into a new `http.ServeMux` and publishes it atomically.
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /users", listUsers)
+router.HandleFunc("GET /users/{id}", getUser)
+router.HandleFunc("POST /users", createUser)
+router.HandleFunc("GET /files/{path...}", serveFile)
+router.Build()
+```
+
+Before the first `Build`, a router behaves like an empty `http.ServeMux` and returns 404. Later configuration changes require another `Build`; requests that already selected the previous table keep using that table.
+
+## Pattern grammar
+
+h3 uses `http.ServeMux` grammar directly. That means the same rules apply:
+
+| Pattern | Meaning |
+| --- | --- |
+| `GET /users` | Match method and path. |
+| `GET /users/{id}` | Match one path segment and expose `id`. |
+| `GET /files/{path...}` | Match the remaining path and expose `path`. |
+| `GET /posts/{$}` | Match exactly `/posts/`, not its subtree. |
+| `/assets/` | Match a path subtree without restricting the method. |
+| `GET example.com/users` | Match host and path. |
+
+The standard library also handles GET/HEAD behavior, wildcard specificity, host-qualified patterns, and method-not-allowed detection. h3 does not reimplement those rules.
+
+In particular, `GET /resource` also matches `HEAD /resource` unless a more specific `HEAD` pattern exists. Path values are available through `r.PathValue`, and the selected fully-expanded pattern is available as `r.Pattern` once `ServeMux` enters the matched handler.
+
+Trailing-slash redirects and path cleaning also come from `ServeMux`. Declare `GET /posts/{$}` when only the exact slash-terminated path is valid; use `GET /posts/` when the complete subtree is intended.
+
+## Configuration model
+
+Router configuration is startup-oriented and is not concurrency-safe. Do not call `Use`, `Handle`, `HandleFunc`, `Mount`, or `Build` concurrently with configuration writes.
+
+A published routing table can serve requests concurrently. `Build` may also run alongside requests when no configuration writes are happening.
+
+Treat configuration as a single-writer control plane. The atomic snapshot only protects publication and request-side reads; it does not make handler maps, mount trees, or middleware slices safe for concurrent mutation.
+
+## Duplicate declarations
+
+- A later `Handle` or `HandleFunc` with the same pattern string replaces the previous handler.
+- A later `Mount` with the same normalized prefix replaces the previous child router.
+- Different pattern strings that conflict under `http.ServeMux` are detected by `Build`, which panics. A failed build does not replace the already-published table.
+
+`Handle` performs only basic early checks for an empty pattern or nil handler. Full grammar and conflict validation happens inside `Build`, so build route trees during startup where a panic is a visible configuration failure.
+
+## Mount routers
+
+`Mount` expands child patterns during compilation. It does not strip the URL prefix at runtime, so handlers see the original URL and `r.Pattern` includes every prefix.
+
+```go
+api := h3.NewRouter()
+api.HandleFunc("GET /health", health)
+
+root := h3.NewRouter()
+root.Mount("/api", api)
+root.Build()
+// Final pattern: GET /api/health
+```
+
+Building the parent expands the child's declarations, but does not publish the child's own standalone snapshot. The child still returns 404 when served directly until `child.Build()` is called. Conversely, rebuilding the child alone does not update a parent snapshot; rebuild the parent to publish mounted changes through the parent.
+
+Host-qualified patterns can be mounted too. Only the path receives the prefix:
+
+```go
+tenant := h3.NewRouter()
+tenant.HandleFunc("GET example.com/users", users)
+
+root.Mount("/api", tenant)
+root.Build()
+// Final pattern: GET example.com/api/users
+```
+
+Mounting a nil router, direct cycle, or indirect cycle panics immediately.
+
+## Mount prefix normalization
+
+Mount prefixes are always paths. `"api"` is normalized to `"/api"`, and `/api` and `/api/` are treated as the same mount prefix for replacement.
+
+Child route patterns still follow `ServeMux` grammar. This distinction matters:
+
+```go
+child.HandleFunc("GET /users", users)      // path
+child.HandleFunc("GET api/users", users)   // host "api", path "/users"
+```
+
+Use a leading slash for paths inside child routers.
+
+## Route errors
+
+A standalone `Router` uses standard-library 404 and 405 responses. When serving through `App`, use `Options.NotFound` and `Options.MethodNotAllowed` to customize routing misses:
+
+```go
+app := h3.New(h3.Options{
+	Router:           router,
+	NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+	MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+})
+```
+
+`http.ServeMux` still decides whether the request is 404 or 405. h3 only replaces the response body at the app boundary.
+
+Route-error handlers are not registered routes, so router middleware is not applied to them automatically. Wrap custom 404/405 handlers yourself if misses need the same logging, CORS, or tracing behavior as normal routes.
+
+A custom 405 handler receives the standard `Allow` header. A matched handler that deliberately writes status 404 is still a matched route and is never replaced by `Options.NotFound`. `ServeMux` path-cleaning redirects are preserved as redirects rather than being mistaken for misses.
+
+## Common mistakes
+
+- Forgetting `Build` when serving a standalone router.
+- Treating a mount prefix as a full pattern. It is always a path; methods and hosts belong to child route patterns.
+- Expecting `Mount` to strip the URL prefix. It expands declarations instead, so handlers see the original URL.
+- Depending on declaration or compilation order. ServeMux specificity, not map iteration order, selects the handler.
+- Mutating a child router while a parent is compiling it. The whole declaration tree follows the same single-writer rule.

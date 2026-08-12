@@ -1,0 +1,46 @@
+---
+title: ContextTimeout
+description: Give ordinary HTTP handlers a deadline and cancel the request context on timeout.
+---
+
+# ContextTimeout
+
+`ContextTimeout` uses `http.TimeoutHandler` to bound downstream execution. When the deadline expires, it cancels the request context and sends `503 Service Unavailable`.
+
+```go
+handler := middleware.ContextTimeout(3 * time.Second)(mux)
+```
+
+`Timeout` must be greater than zero or construction panics.
+
+## Customize the response body
+
+```go
+timeout := middleware.ContextTimeoutWithConfig(
+	middleware.ContextTimeoutConfig{
+		Timeout: 3 * time.Second,
+		Message: "operation timed out",
+		Skipper: func(r *http.Request) bool {
+			return strings.HasPrefix(r.URL.Path, "/events/")
+		},
+	},
+)
+```
+
+`Message` defaults to `Service Unavailable`. This middleware has no `ErrorHandler`; the standard library timeout handler writes the timeout response directly.
+
+## Downstream code must cooperate with cancellation
+
+A timeout does not forcibly stop a goroutine. Database, RPC, and compute work must observe `r.Context().Done()` and pass the request context into cancelable APIs:
+
+```go
+rows, err := db.QueryContext(r.Context(), query)
+```
+
+## Do not use it for streaming protocols
+
+`http.TimeoutHandler` buffers the response, does not support `Hijacker`, and is unsuitable for WebSocket, SSE, long polling, or sustained file streams. Exclude those routes with `Skipper` and configure protocol-specific deadlines and cancellation instead.
+
+<Callout title="Application deadlines and transport deadlines differ">
+  ContextTimeout bounds total handler execution. Configure Server ReadHeaderTimeout, ReadTimeout, WriteTimeout, and IdleTimeout separately.
+</Callout>

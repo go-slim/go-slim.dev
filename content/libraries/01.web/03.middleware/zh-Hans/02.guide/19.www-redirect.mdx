@@ -1,0 +1,29 @@
+---
+title: WWWRedirect
+description: 为 host 添加 www 前缀，同时保留当前请求 scheme。
+---
+
+# WWWRedirect
+
+`WWWRedirect` 在 host 不以 `www.` 开头时发送 redirect，并保留当前 scheme、path 与 query string。
+
+```go
+handler := middleware.WWWRedirect()(mux)
+```
+
+例如，`https://example.com/docs?q=go` 会转到 `https://www.example.com/docs?q=go`。已经带有 `www.` 的请求直接进入下游。
+
+## 配置
+
+```go
+redirect := middleware.WWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+默认状态码为 301，有效范围为 300 到 308。这个 middleware 不会把 HTTP 升级到 HTTPS；需要同时规范 scheme 时使用 `HTTPSWWWRedirect`。
+
+部署在 proxy 后时，当前 scheme 可能由 forwarding header 推断。客户端提供的值必须先在可信边缘被删除。

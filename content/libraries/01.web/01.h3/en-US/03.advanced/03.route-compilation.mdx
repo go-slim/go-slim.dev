@@ -1,0 +1,66 @@
+---
+title: Route compilation
+description: Understand immutable route snapshots, replacement rules, and CompileRoutes.
+---
+
+# Route compilation
+
+h3 separates mutable configuration from serving. Route declarations are mutable while building the application. `Build` publishes an immutable serving snapshot; `CompileRoutes` returns expanded declarations for a caller that wants to build its own snapshot.
+
+## Build snapshots
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /users", users)
+router.Build()
+```
+
+`Build` compiles the full tree into a new `http.ServeMux` and publishes it atomically. Requests already using the previous snapshot keep using it.
+
+This design avoids locks on every request and makes route-table changes explicit.
+
+Publication is all-or-nothing for the root being built. h3 constructs the replacement mux first; if `ServeMux.Handle` panics because a pattern is invalid or conflicts with another pattern, the pointer is never swapped and the previous snapshot remains active.
+
+Only the root router receives the published mux. Mounted child declarations are recursively copied into that root snapshot, but the child router's own `ServeHTTP` view is unchanged until the child is built separately.
+
+## Replacement rules
+
+| Declaration | Replacement rule |
+| --- | --- |
+| `Handle` / `HandleFunc` | Same pattern string replaces the previous handler. |
+| `Mount` | Same normalized prefix replaces the previous child router. |
+| Conflicting ServeMux patterns | Detected during `Build`; build panics and does not replace the published snapshot. |
+
+Mount prefixes normalize to paths. `/api` and `/api/` are the same prefix.
+
+The replacement rule is based on the exact declaration key. Two different strings that describe conflicting ServeMux patterns are not replacements; they remain separate declarations and panic during build.
+
+## Use CompileRoutes
+
+`CompileRoutes` returns final route declarations with mount prefixes expanded and middleware already composed:
+
+```go
+routes := router.CompileRoutes()
+for _, route := range routes {
+	externalMux.Handle(route.Pattern, route.Handler)
+}
+```
+
+Use this only when another facility needs final h3 declarations. Most applications should call `Build` or let `App.Start` build the router.
+
+Each call recursively invokes middleware factories once for every resulting route. The returned handlers are ready to register and do not depend on the router's later published mux. Calling `CompileRoutes` again creates new chains; it is not a read of a cached compilation.
+
+`CompileRoutes` does not perform full ServeMux conflict validation by itself. That validation occurs when the returned patterns are passed to `http.ServeMux.Handle`, either in `Build` or by your external mux.
+
+## Ordering
+
+Compiled route order is not a stable API because declarations are stored in maps. Do not depend on iteration order for behavior. `http.ServeMux` chooses matches by its own pattern rules, not registration order.
+
+## Safe rebuild procedure
+
+1. Stop all configuration writers.
+2. Apply route, mount, and middleware changes to the complete tree.
+3. Call `Build` on the root served by requests.
+4. Treat a panic as a configuration failure; do not recover and continue as if the new declarations were published.
+
+Serving can continue during step 3 because readers use the previous immutable snapshot until publication. This does not make steps 1 and 2 concurrency-safe.

@@ -1,0 +1,88 @@
+---
+title: 匹配 Content-Type
+description: 把具体请求媒体类型解析成 decoder 类别。
+---
+
+# 匹配 Content-Type
+
+选择 request-body decoder 前使用 `TypeIs`：
+
+```go
+kind, err := nego.TypeIs(
+	r.Header.Get(nego.HeaderContentType),
+	"json",
+	"xml",
+	"form",
+)
+if err != nil {
+	return fmt.Errorf("parse Content-Type: %w", err)
+}
+
+switch kind {
+case "json":
+	err = json.NewDecoder(r.Body).Decode(&input)
+case "xml":
+	err = xml.NewDecoder(r.Body).Decode(&input)
+case "form":
+	err = r.ParseMultipartForm(8 << 20)
+default:
+	// 类型合法但不受支持，endpoint 可以返回 415。
+}
+```
+
+返回值是原始 candidate，不是展开后的 MIME type。`application/json` 与 `"json"` 匹配时返回 `"json"`。
+
+## Candidate 形式
+
+Candidate 按传入顺序检查，可以是：
+
+- `json`、`jsonp`、`xml`、`form`、`protobuf`、`msgpack`、`text` 或 `string` alias；
+- `application/problem+json` 这类完整 media type；
+- `image/*` 或 `*/*` 这类 expected range；
+- `mime.TypeByExtension` 已注册的 extension，例如 `html`。
+
+未知 alias 或错误 expected range 会返回 error。服务端候选列表最好作为启动配置处理。
+
+## 具体的请求值
+
+传入的 `Content-Type` 必须包含具体 type 与 subtype。空值和 `application/*` 这类请求 wildcard 都非法：
+
+| 输入 | 结果 |
+| --- | --- |
+| `application/json` | 可以匹配 `json` 或 `application/*` |
+| `application/json; charset=utf-8` | 可以匹配；参数会校验，但不参与选择 |
+| `application/problem+json` | 不会隐式匹配 `json` alias |
+| 空值 | Error |
+| `application/*` | Error |
+| 合法但不受支持 | `"", nil` |
+
+带 `+json` structured suffix 的类型不等同于 `application/json` alias。应提供精确类型，或明确包含 decoder 确实能安全处理的 expected range。
+
+## 参数属于 decoder
+
+`mime.ParseMediaType` 会校验参数和 quoted string，但匹配只使用 type/subtype。这样传输 dispatch 不会假装理解 decoder-specific constraint：
+
+- JSON decoder policy 决定是否接受 charset 参数。
+- Multipart parser 读取并校验 `boundary`。
+- Version 或 profile parameter 需要应用专属处理。
+
+如果参数会选择不同应用语义，应在 `TypeIs` 之后单独解析和校验，而不是把 match 当作对参数的批准。
+
+## 空 body 策略
+
+允许无 body 或不要求 `Content-Type` 的 endpoint，应在调用 `TypeIs` 前作出判断：
+
+```go
+if r.Body == nil || r.ContentLength == 0 {
+	// 应用 endpoint 的 empty-body 规则。
+} else {
+	kind, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json")
+	// ...
+}
+```
+
+`ContentLength == -1` 表示长度未知，不表示空。Decoder 仍需要 body limit，并根据 endpoint policy 处理 `io.EOF`。
+
+## 明确映射错误
+
+在严格 endpoint 中，非法 `Content-Type` 与合法但不受支持的类型都可能映射成 415，但诊断信息应保持区别。非法服务端 candidate 是部署缺陷，通常应为 500，而不是 client error。

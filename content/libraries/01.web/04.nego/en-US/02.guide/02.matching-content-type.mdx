@@ -1,0 +1,88 @@
+---
+title: Matching Content-Type
+description: Resolve concrete request media types into decoder categories.
+---
+
+# Matching Content-Type
+
+Use `TypeIs` before selecting a request-body decoder:
+
+```go
+kind, err := nego.TypeIs(
+	r.Header.Get(nego.HeaderContentType),
+	"json",
+	"xml",
+	"form",
+)
+if err != nil {
+	return fmt.Errorf("parse Content-Type: %w", err)
+}
+
+switch kind {
+case "json":
+	err = json.NewDecoder(r.Body).Decode(&input)
+case "xml":
+	err = xml.NewDecoder(r.Body).Decode(&input)
+case "form":
+	err = r.ParseMultipartForm(8 << 20)
+default:
+	// Valid but unsupported. The endpoint may return 415.
+}
+```
+
+The return value is the original candidate, not its expanded MIME type. Matching `application/json` against `"json"` returns `"json"`.
+
+## Accepted candidates
+
+Candidates are checked in order and may be:
+
+- aliases: `json`, `jsonp`, `xml`, `form`, `protobuf`, `msgpack`, `text`, or `string`;
+- complete media types such as `application/problem+json`;
+- expected ranges such as `image/*` or `*/*`;
+- extensions registered with `mime.TypeByExtension`, such as `html`.
+
+An unknown alias or invalid expected range returns an error. Treat server-provided candidate lists as startup configuration when possible.
+
+## Concrete inbound values
+
+The inbound `Content-Type` must contain a concrete type and subtype. Empty values and request wildcards such as `application/*` are invalid:
+
+| Input | Result |
+| --- | --- |
+| `application/json` | Can match `json` or `application/*` |
+| `application/json; charset=utf-8` | Can match; parameter is validated and ignored for selection |
+| `application/problem+json` | Does not implicitly match the `json` alias |
+| empty | Error |
+| `application/*` | Error |
+| valid but unsupported | `"", nil` |
+
+`+json` structured suffixes are not aliases for `application/json`. Offer the exact type, or deliberately include an expected range whose breadth is safe for the decoder.
+
+## Parameters belong to decoders
+
+`mime.ParseMediaType` validates parameters and quoted strings, but matching uses only type/subtype. This prevents transport dispatch from pretending it understands decoder-specific constraints:
+
+- JSON decoder policy decides whether a charset parameter is acceptable.
+- Multipart parsing consumes and validates `boundary`.
+- Version or profile parameters require application-specific handling.
+
+If parameters select different application semantics, parse and validate them after `TypeIs` rather than assuming a match approved them.
+
+## Empty body policy
+
+An endpoint that permits no body or an absent `Content-Type` should decide that before calling `TypeIs`:
+
+```go
+if r.Body == nil || r.ContentLength == 0 {
+	// Apply the endpoint's empty-body rule.
+} else {
+	kind, err := nego.TypeIs(r.Header.Get(nego.HeaderContentType), "json")
+	// ...
+}
+```
+
+`ContentLength == -1` means unknown length, not empty. The decoder still needs a body limit and must handle `io.EOF` according to endpoint policy.
+
+## Map errors deliberately
+
+An invalid inbound `Content-Type` and a valid unsupported type can both produce 415 in a strict endpoint, but retain different diagnostics. Invalid server candidates are deployment defects and normally produce 500, not a client error.

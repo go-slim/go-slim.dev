@@ -1,0 +1,58 @@
+title: middleware
+description:
+  en-US: Focused HTTP middleware built on the Go standard library.
+  zh-Hans: 建立在 Go 标准库之上的专用 HTTP 中间件。
+icon: icons/plug-connected.svg
+llms:
+  repository: go-slim/middleware
+  skillDescription: Middleware is a collection of focused Go HTTP middleware built on the standard library.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    "API key": "由客户端提交、供服务识别和验证调用方的 API 凭证。"
+    CORS: "Cross-Origin Resource Sharing，浏览器跨源资源共享机制。"
+    CSRF: "Cross-Site Request Forgery，跨站请求伪造攻击。"
+    "Fetch Metadata": "浏览器通过 Sec-Fetch-* 头描述请求来源与导航上下文的机制。"
+    CSP: "Content Security Policy，限制浏览器可加载和执行哪些资源的安全策略。"
+    HSTS: "HTTP Strict Transport Security，要求浏览器后续只通过 HTTPS 访问站点。"
+    preflight: "浏览器在部分跨源请求前发送的 OPTIONS 预检请求。"
+    balancer: "从一组 upstream target 中选择本次代理目标的负载均衡器。"
+    Balancer: "从一组 upstream target 中选择本次代理目标的负载均衡器。"
+    upstream: "反向代理转发请求的上游服务。"
+    transport: "负责建立连接并完成代理 HTTP 往返的 RoundTripper。"
+    "forwarding header": "由代理写入、描述原始客户端或协议的转发头字段。"
+    "canonical URL": "同一资源选定的规范 URL，用于统一 scheme、host 或路径形式。"
+    SPA: "Single-Page Application，由浏览器端路由驱动的单页应用。"
+    "zip bomb": "压缩体很小但解压后体积巨大的恶意或异常数据。"
+    "token bucket": "按固定速率补充令牌并允许一定突发量的限流算法。"
+    "rate limit": "限制某个身份或来源在单位时间内可发送的请求数量。"
+    "request ID": "用于在日志和调用链中关联同一次请求的唯一标识。"
+    Base64: "把二进制数据编码为 ASCII 文本的编码方式；它不提供加密。"
+    authentication: "确认调用方身份或凭证是否有效的认证过程。"
+    authorization: "在身份确认后判断其是否有权执行操作的授权过程。"
+    proxy: "代表客户端向上游服务转发请求并返回响应的代理。"
+    store: "保存限流状态等运行期数据的可替换存储实现。"
+    Store: "保存限流状态等运行期数据的可替换存储实现。"
+    validator: "校验凭证或输入并返回验证结果的函数。"
+    Validator: "校验凭证或输入并返回验证结果的函数。"
+    extractor: "从请求的指定位置提取候选值的组件。"
+    "query string": "URL 中问号之后的原始查询参数字符串。"
+    scheme: "URL 中表示访问协议的部分，例如 http 或 https。"
+    logger: "把请求、响应或错误写入日志系统的记录器。"
+    gzip: "基于 DEFLATE 的通用压缩文件与 HTTP 内容编码格式。"
+    stack: "panic 发生时记录函数调用路径的调用栈。"
+    filesystem: "通过目录、文件和路径组织持久数据的文件系统。"
+    burst: "限流器允许短时间超过稳定速率的突发请求额度。"
+    "remote IP": "当前连接对端的网络地址；经过代理时未必是原始客户端。"
+    "Referrer Policy": "控制浏览器在跳转或子请求中发送多少来源 URL 的策略。"
+    challenge: "服务端要求客户端提供认证凭证的 WWW-Authenticate 响应。"
+    chunked: "不预先声明总长度、把 HTTP/1.1 正文分块传输的编码方式。"
+    "HTML5 fallback": "静态路径不存在时返回 SPA 入口文档的后备策略。"
+    "open redirect": "攻击者可控制跳转目标、把用户导向任意站点的开放重定向漏洞。"
+    MiB: "mebibyte，2^20 字节。"
+    KiB: "kibibyte，2^10 字节。"
+    "www host": "主机名带有 www 前缀的站点地址形式。"
+    "non-www host": "主机名不带 www 前缀的站点地址形式。"
+showInNavigation: true

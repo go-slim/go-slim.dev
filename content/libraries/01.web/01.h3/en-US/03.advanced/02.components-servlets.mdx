@@ -1,0 +1,137 @@
+---
+title: Components and servlets
+description: Package routes and background resources behind one h3 component boundary.
+---
+
+# Components and servlets
+
+A `Component` combines a mount prefix and a child router. If the same value also implements `Servlet`, h3 manages its startup and shutdown with the app.
+
+Use components when one package owns both routes and resources:
+
+- an admin module with `/admin` routes and a background indexer;
+- a worker module with `/workers/status` and a queue consumer;
+- a metrics module with `/metrics` and a scraper lifecycle.
+
+## Define a component
+
+```go
+type workerComponent struct {
+	h3.Component
+	lifecycle sync.Mutex
+	stop      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func newWorkerComponent() *workerComponent {
+	component := &workerComponent{
+		Component: h3.NewComponent("/workers"),
+	}
+	component.Router().HandleFunc("GET /status", component.status)
+	return component
+}
+
+func (c *workerComponent) status(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte("ok"))
+}
+```
+
+Embed `h3.Component`, not `*h3.Component`. `Component` is an interface, and `NewComponent` returns an implementation of it.
+
+The value returned by `NewComponent` owns only a prefix and router. It does not implement `Servlet`. Lifecycle participation is structural: the concrete value passed to `Register` must itself provide both `Start(context.Context) error` and `Stop() error`.
+
+## Add lifecycle
+
+Keep lifecycle state reusable across app runs. Hold the lifecycle lock through `Wait` so a new run cannot overlap cleanup of the previous one:
+
+```go
+func (c *workerComponent) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop != nil {
+		return errors.New("worker is already started")
+	}
+
+	stop := make(chan struct{})
+	c.stop = stop
+	c.wg.Add(1)
+	// The Start context is for startup checks and rollback.
+	go func() {
+		defer c.wg.Done()
+		c.run(stop)
+	}()
+	return nil
+}
+
+func (c *workerComponent) Stop() error {
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop == nil {
+		return nil
+	}
+
+	close(c.stop)
+	c.wg.Wait()
+	c.stop = nil
+	return nil
+}
+```
+
+`Start` should initialize resources or perform startup checks. `Stop` should stop background work and release resources. Keep both operations bounded, explicit, and idempotent.
+
+If startup needs a context-aware check, use the `Start` context before launching long-running work. Do not use it as the worker's runtime cancellation signal.
+
+Do not keep one permanent `sync.Once` for channel closure unless it is reset safely on every successful `Start`. h3 supports starting the same app again after `Stop`, so a component's lifecycle state must support the same sequence.
+
+## Register ownership
+
+```go
+app := h3.New(h3.Options{Addr: ":8080"})
+app.Register(newWorkerComponent())
+```
+
+Register components only while the app is stopped. Duplicate component prefixes panic. That is stricter than `Router.Mount` because components may own background resources; replacing only routes while leaving old resources alive would split ownership.
+
+Prefixes are normalized as paths: `api`, `/api`, and `/api/` refer to the same mount location. An empty prefix, nil component, duplicate normalized prefix, or registration while the app is running panics.
+
+## Register a servlet without routes
+
+A database connection, queue consumer, or scheduled job may own lifecycle without owning routes. Register the `Servlet` directly instead of manufacturing an empty Component:
+
+```go
+type consumerServlet struct {
+	consumer *Consumer
+}
+
+func (s *consumerServlet) Start(ctx context.Context) error {
+	consumer, err := OpenConsumer(ctx)
+	if err != nil {
+		return err
+	}
+	s.consumer = consumer
+	return nil
+}
+
+func (s *consumerServlet) Stop() error {
+	if s.consumer == nil {
+		return nil
+	}
+	err := s.consumer.Close()
+	s.consumer = nil
+	return err
+}
+
+app.RegisterServlet(&consumerServlet{})
+```
+
+`Register(Component)` owns route mounting and automatically enrolls a component that also implements `Servlet`. `RegisterServlet(Servlet)` enrolls lifecycle only. Do not pass the same object to both methods, or it will be started and stopped twice.
+
+## Registration order
+
+`Register` and `RegisterServlet` share one lifecycle sequence. Servlets start in registration order and stop in reverse order. Register foundational dependencies before components that depend on them.
+
+If a later servlet fails to start, already-started servlets are rolled back in reverse order. A component should therefore leave no live resource behind when `Start` returns an error, and its `Stop` should finish all owned goroutines before returning.

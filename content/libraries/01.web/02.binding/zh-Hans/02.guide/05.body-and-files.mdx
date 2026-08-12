@@ -1,0 +1,126 @@
+---
+title: 请求体与文件
+description: 处理 JSON、XML、表单和 multipart 文件，并控制资源使用。
+---
+
+# 请求体与文件
+
+`BindBody` 根据请求 `Content-Type` 的基础媒体类型选择处理方式。
+
+| Content-Type | 行为 |
+| --- | --- |
+| `application/json` | 读取完整 body，再交给 `encoding/json` |
+| `application/xml` | 使用 `encoding/xml.Decoder` |
+| `text/xml` | 使用 `encoding/xml.Decoder` |
+| `application/x-www-form-urlencoded` | 标准库表单解析与 `form` 标签 |
+| `multipart/form-data` | 标准库 multipart 解析、字段与文件绑定 |
+
+`charset` 和 multipart boundary 等参数不影响类型选择。其他媒体类型返回 `ErrUnsupportedMediaType`。
+
+如果 `ContentLength` 恰好是 `0`，`BindBody` 会直接把请求视为没有 body，不检查 `Content-Type`。
+
+## JSON
+
+```go
+type createInput struct {
+	Name string   `json:"name"`
+	Tags []string `json:"tags"`
+}
+
+var input createInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+JSON 实现会把完整请求体读入内存后调用 `json.Unmarshal`，不设置大小上限。应在绑定之前限制不可信请求：
+
+```go
+r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+```
+
+## XML
+
+```go
+type createInput struct {
+	Name string `xml:"name"`
+}
+
+var input createInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+XML 使用流式 `xml.Decoder`。JSON 和 XML 都会消费 `Request.Body`；除非调用方缓存并替换 body，否则不要绑定第二次。
+
+## URL 编码表单
+
+```go
+type loginInput struct {
+	Email    string `form:"email"`
+	Password string `form:"password"`
+}
+```
+
+非 multipart 表单沿用 `http.Request.ParseForm`：对 `POST`、`PUT` 和 `PATCH`，`r.Form` 同时包含 URL query 与 body 中的表单值，且 body 值优先。
+
+这意味着 `form` 标签不是“只从 body 读取”。如果安全策略要求某个字段只能来自 body，需要在应用层显式限制来源。
+
+## Multipart 文件
+
+```go
+type uploadInput struct {
+	Title  string                  `form:"title"`
+	Avatar *multipart.FileHeader   `form:"avatar"`
+	Files  []*multipart.FileHeader `form:"files"`
+}
+
+var input uploadInput
+if err := binding.BindBody(r, &input); err != nil {
+	return err
+}
+```
+
+支持的文件字段类型是：
+
+```go
+*multipart.FileHeader
+[]multipart.FileHeader
+[]*multipart.FileHeader
+```
+
+不支持单独的 `multipart.FileHeader` 值，因为它的零值无法区分“没有上传文件”。单文件使用指针，多文件使用切片。
+
+## 内存阈值不是上传限制
+
+`MiddlewareConfig.FormParseMaxMemory` 控制 multipart 文件有多少字节留在内存中；超过阈值的部分由标准库写入临时文件。默认值为 32 MiB。
+
+它不限制请求总大小。上传端点仍应设置硬限制，并校验文件数量、单文件大小、内容类型以及后续存储容量：
+
+```go
+handler := binding.MiddlewareWithConfig(binding.MiddlewareConfig{
+	FormParseMaxMemory: 8 << 20,
+})(mux)
+```
+
+```go
+func upload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	// 然后调用 BindBody。
+}
+```
+
+## Content-Type 判断
+
+多数 Handler 直接调用 `BindBody` 即可。如果业务逻辑需要在绑定前判断类型，使用 `go-slim.dev/nego`：
+
+```go
+kind, err := nego.TypeIs(
+	r.Header.Get(nego.HeaderContentType),
+	"json",
+	"xml",
+)
+```
+
+binding 自身不导出 `TypeIs`。

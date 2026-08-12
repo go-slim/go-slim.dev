@@ -1,0 +1,87 @@
+---
+title: RateLimiter
+description: 按请求身份调用可替换 store，并提供内置内存 token bucket。
+---
+
+# RateLimiter
+
+`RateLimiter` 先从请求提取身份，再由 store 决定是否允许本次请求。
+
+```go
+store := middleware.NewRateLimiterMemoryStore(20) // 每秒 20 个请求
+handler := middleware.RateLimiter(store)(mux)
+```
+
+内置 store 为每个身份维护并发安全的 token bucket。burst 默认为 `ceil(rate)`，最小为 1；不活跃身份默认在 3 分钟后清理。
+
+```go
+store := middleware.NewRateLimiterMemoryStoreWithConfig(
+	middleware.RateLimiterMemoryStoreConfig{
+		Rate:      20,
+		Burst:     40,
+		ExpiresIn: 10 * time.Minute,
+	},
+)
+```
+
+选择大于零的 rate，并根据实际突发流量明确设置 burst。
+
+## 自定义身份
+
+默认身份来自客户端 IP helper。位于反向代理后时，只有在 forwarding header 已由可信边缘清洗后才能依赖它。对已认证 API，通常使用稳定的账号或 API key ID 更合适：
+
+```go
+limiter := middleware.RateLimiterWithConfig(
+	middleware.RateLimiterConfig{
+		Store: store,
+		IdentifierExtractor: func(r *http.Request) (string, error) {
+			principal, ok := principalFromContext(r.Context())
+			if !ok {
+				return "", errors.New("principal missing")
+			}
+			return principal.ID, nil
+		},
+		ErrorHandler: writeAPIError,
+	},
+)
+```
+
+提取失败按 `403 Forbidden` 处理，错误链包含 `ErrExtractorError`；store 失败按 `500` 处理。store 是必需项，缺失会在构造时 panic。
+
+`BeforeFunc` 在提取身份和访问 store 之前运行，可用于补充 request context 已有的状态；它不会接管响应。
+
+## 拒绝响应
+
+默认拒绝返回 `429 Too Many Requests`，错误链包含 `ErrRateLimitExceeded`。提供 `DenyHandler` 可以完全接管响应：
+
+```go
+DenyHandler: func(w http.ResponseWriter, r *http.Request, id string, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = io.WriteString(w, `{"error":"rate_limited"}`)
+},
+```
+
+内置 memory store 实现了 `RateLimiterStoreContext`，会写入 `X-RateLimit-Limit`、`X-RateLimit-Remaining`，拒绝时还会写 `Retry-After`。
+
+## 自定义 Store
+
+```go
+type RateLimiterStore interface {
+	Allow(identifier string) (bool, error)
+}
+```
+
+需要 request context 或响应 header 时，可额外实现：
+
+```go
+type RateLimiterStoreContext interface {
+	AllowContext(http.ResponseWriter, *http.Request, string) (bool, error)
+}
+```
+
+Store 必须并发安全。内存 store 适合单实例限流；多实例全局配额需要共享且具备明确一致性语义的外部 store。身份基数也必须受控，避免攻击者制造无限条目。
+
+<Callout title="限流不是精确计费">
+  限流用于保护容量和改善公平性。涉及账单、配额扣减或强一致约束时，应使用独立的持久化事务模型。
+</Callout>

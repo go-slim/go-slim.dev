@@ -1,0 +1,33 @@
+---
+title: HTTPSRedirect
+description: 把 HTTP 请求重定向到同一 host 的 HTTPS URL。
+---
+
+# HTTPSRedirect
+
+`HTTPSRedirect` 在请求 scheme 不是 HTTPS 时发送重定向，host、path 与 query string 保持不变。
+
+```go
+handler := middleware.HTTPSRedirect()(mux)
+```
+
+例如，`http://example.com/documents?page=2` 会转到 `https://example.com/documents?page=2`。已经是 HTTPS 的请求直接进入下游。
+
+## 配置状态码
+
+```go
+redirect := middleware.HTTPSRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+默认状态码为 `301 Moved Permanently`。`Code` 必须位于 300 到 308，否则构造时 panic。请求可能携带 body 时，307 或 308 能明确保留原方法与 body。
+
+## 代理信任边界
+
+scheme 检测可能参考 forwarding header。可信边缘必须删除客户端伪造值再重建，否则攻击者可能让 HTTP 请求被误判为 HTTPS。若 TLS 在 proxy 终止，也可以直接在该层完成 redirect。
+
+相关 host 规范化请参阅 `HTTPSWWWRedirect` 与 `HTTPSNonWWWRedirect`。

@@ -1,0 +1,140 @@
+---
+title: 结构体绑定
+description: 理解路径、查询、Header 与请求体如何写入专用输入结构体。
+---
+
+# 结构体绑定
+
+当一个 Handler 接收多个字段时，结构体能最清楚地表达输入契约。
+
+```go
+type searchInput struct {
+	ProjectID uint     `param:"project_id"`
+	Query     string   `query:"q"`
+	Tags      []string `query:"tag"`
+	RequestID string   `header:"X-Request-ID"`
+}
+```
+
+目标必须是非 nil 指针。路径、query、Header 和 form 绑定面向结构体或受支持的 map；JSON 和 XML 则遵循各自的标准库解码器规则。
+
+## DefaultBinder 的顺序
+
+`DefaultBinder.Bind` 按固定顺序执行：
+
+1. 路径参数；
+2. 仅对 `GET`、`DELETE`、`HEAD` 和 `QUERY` 绑定查询参数；
+3. 请求体。
+
+后执行的来源可以覆盖先前写入的字段。Header 永远不会自动加入这个流程。
+
+```go
+var input searchInput
+if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+	return err
+}
+if err := binding.BindHeaders(r, &input); err != nil {
+	return err
+}
+```
+
+<Callout type="warning" title="写请求中的 query 必须显式绑定">
+  `POST`、`PUT` 和 `PATCH` 不会由 `DefaultBinder` 自动读取 query。如果它是
+  API 契约的一部分，请显式调用 `BindQueryParams`，并用调用顺序表达覆盖规则。
+</Callout>
+
+## 只绑定一个来源
+
+```go
+err := binding.BindPathValues(r, &input)
+err = binding.BindQueryParams(r, &input)
+err = binding.BindHeaders(r, &input)
+err = binding.BindBody(r, &input)
+```
+
+这组函数也适合手动组合不符合默认顺序的端点。此时调用顺序就是覆盖顺序。
+
+## 标签
+
+| 标签 | 输入来源 |
+| --- | --- |
+| `param:"id"` | `r.PathValue("id")` |
+| `query:"page"` | URL 查询参数 |
+| `header:"X-Request-ID"` | 请求头 |
+| `form:"name"` | URL 编码或 multipart 表单 |
+| `json:"name"` | `encoding/json` |
+| `xml:"name"` | `encoding/xml` |
+| `format:"2006-01-02"` | 反射绑定中的 `time.Time` 格式 |
+
+路径、query、Header 和 form 字段必须显式声明来源标签。未标记的普通嵌套结构体会继续向下查找带标签字段；直接给匿名嵌入结构体添加来源标签会返回错误。
+
+## 值如何写入字段
+
+- 标量字段使用输入中的第一个值。
+- 切片字段接收同名键的全部值。
+- 精确键名优先；找不到时会进行大小写不敏感匹配。
+- 支持字符串、布尔值、整数、无符号整数、浮点数、指针、切片和嵌套结构体。
+- 空字符串绑定到数字、布尔值或浮点数时分别转换为 `0`、`false` 或 `0.0`。
+
+```go
+type listInput struct {
+	Page int      `query:"page"`
+	Tag  []string `query:"tag"`
+}
+```
+
+对于 `?page=2&tag=go&tag=http`，结果是 `Page == 2`、`Tag == []string{"go", "http"}`。
+
+## Map 目标
+
+来源专用函数支持三种 map：
+
+```go
+map[string]string
+map[string][]string
+map[string]any
+```
+
+`map[string]string` 和 `map[string]any` 只保留第一个值。Map 适合受控透传或诊断；稳定的公开端点仍应使用结构体。
+
+## 自定义类型
+
+字段可以实现：
+
+```go
+type BindUnmarshaler interface {
+	UnmarshalParam(string) error
+}
+```
+
+binding 也识别 `encoding.TextUnmarshaler`。例如：
+
+```go
+type slug string
+
+func (s *slug) UnmarshalParam(value string) error {
+	if value == "" {
+		return errors.New("empty slug")
+	}
+	*s = slug(strings.ToLower(value))
+	return nil
+}
+```
+
+对 `time.Time` 字段，可用 `format` 指定 `time.Parse` 布局：
+
+```go
+type reportInput struct {
+	Date time.Time `query:"date" format:"2006-01-02"`
+}
+```
+
+## 保持输入模型最小化
+
+```go
+type updateAccountInput struct {
+	DisplayName string `json:"display_name"`
+}
+```
+
+不要把含权限字段、所有者 ID 或数据库状态的领域对象直接作为绑定目标。绑定之后再执行校验、授权和显式映射，避免客户端写入不属于它的字段。

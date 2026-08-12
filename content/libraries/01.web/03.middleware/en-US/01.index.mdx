@@ -1,0 +1,79 @@
+---
+title: middleware
+sidebarTitle: Overview
+description: Focused HTTP middleware built on net/http.
+icon: route
+---
+
+# middleware
+
+`go-slim.dev/middleware` provides focused HTTP middleware that follows the standard library conventions. Every constructor returns:
+
+```go
+func(http.Handler) http.Handler
+```
+
+It can wrap `http.ServeMux`, h3, or any compatible router without introducing a framework-specific context, handler signature, or application lifecycle.
+
+## Install
+
+```sh
+go get go-slim.dev/middleware
+```
+
+The module requires Go 1.25.5 or later.
+
+## Minimal example
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+})
+
+handler := middleware.Recover()(
+	middleware.RequestID()(
+		middleware.RequestLogger()(mux),
+	),
+)
+
+log.Fatal(http.ListenAndServe(":8080", handler))
+```
+
+The outer middleware sees the request first and the completed response last. In this example, requests flow through `Recover → RequestID → RequestLogger → mux`; responses return in reverse order.
+
+## Find by name
+
+| Middleware | Purpose |
+| --- | --- |
+| [`BasicAuth`](/libraries/middleware/guide/basic-auth) | HTTP Basic authentication |
+| [`BodyDump`](/libraries/middleware/guide/body-dump) | Capture request and response bodies |
+| [`BodyLimit`](/libraries/middleware/guide/body-limit) | Limit request body size |
+| [`ContextTimeout`](/libraries/middleware/guide/context-timeout) | Bound handler execution time |
+| [`CORS`](/libraries/middleware/guide/cors) | Handle cross-origin requests |
+| [`CSRF`](/libraries/middleware/guide/csrf) | Defend against cross-site request forgery |
+| [`Decompress`](/libraries/middleware/guide/decompress) | Decompress gzip request bodies |
+| [`Gzip`](/libraries/middleware/guide/gzip) | Compress response bodies |
+| [`KeyAuth`](/libraries/middleware/guide/key-auth) | Read API keys from headers, query values, and more |
+| [`MethodOverride`](/libraries/middleware/guide/method-override) | Override the method of POST requests |
+| [`Proxy`](/libraries/middleware/guide/proxy) | Reverse proxy and load balance requests |
+| [`RateLimiter`](/libraries/middleware/guide/rate-limiter) | Limit request rates by identity |
+| [`Recover`](/libraries/middleware/guide/recover) | Recover from handler panics |
+| [`HTTPSRedirect`](/libraries/middleware/guide/https-redirect) | Enforce HTTPS |
+| [`HTTPSWWWRedirect`](/libraries/middleware/guide/https-www-redirect) | Canonicalize onto HTTPS plus a www host |
+| [`HTTPSNonWWWRedirect`](/libraries/middleware/guide/https-non-www-redirect) | Canonicalize onto HTTPS plus a non-www host |
+| [`WWWRedirect`](/libraries/middleware/guide/www-redirect) | Add a www host prefix |
+| [`NonWWWRedirect`](/libraries/middleware/guide/non-www-redirect) | Remove a www host prefix |
+| [`RequestID`](/libraries/middleware/guide/request-id) | Propagate or generate request IDs |
+| [`RequestLogger`](/libraries/middleware/guide/request-logger) | Record structured request logs |
+| [`Rewrite`](/libraries/middleware/guide/rewrite) | Rewrite request URLs internally |
+| [`Secure`](/libraries/middleware/guide/secure) | Write browser security headers |
+| [`Static`](/libraries/middleware/guide/static) | Serve static files |
+| [`AddTrailingSlash`](/libraries/middleware/guide/add-trailing-slash) | Add a trailing slash |
+| [`RemoveTrailingSlash`](/libraries/middleware/guide/remove-trailing-slash) | Remove a trailing slash |
+
+Before integrating the package, read [Before you begin](/libraries/middleware/guide/before-you-begin). It centralizes ordering, error responses, `Skipper`, concurrency, and `ResponseWriter` capabilities.
+
+<Callout title="Boundary">
+  Middleware is appropriate for cross-cutting HTTP policy. Route ownership, domain logic, response schemas, and application startup remain the caller's responsibility.
+</Callout>

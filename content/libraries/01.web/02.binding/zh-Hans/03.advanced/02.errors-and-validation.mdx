@@ -1,0 +1,127 @@
+---
+title: 错误与验证
+description: 分类失败、读取字段详情，并把转换与业务验证分开。
+---
+
+# 错误与验证
+
+binding 只返回错误，不会写 HTTP 响应。应用应保留错误链，在统一边界决定状态码和公开响应格式。
+
+## 错误来源
+
+| 错误 | 出现位置 |
+| --- | --- |
+| `ErrUnsupportedMediaType` | `BindBody` 无法识别非空请求的媒体类型 |
+| `ErrBadRequest` | 结构体转换、JSON/XML/Form 解析失败 |
+| `ErrNonExistentKey` | 必填泛型函数找不到键 |
+| `*FieldError` | 泛型转换失败，或 Fluent API 的必填/转换失败 |
+
+`ErrBadRequest` 和 `ErrUnsupportedMediaType` 是 `BindingError`。包装后的错误仍可通过 `errors.Is` 分类，并保留原始原因。
+
+```go
+switch {
+case errors.Is(err, binding.ErrUnsupportedMediaType):
+	// 应用可以映射为 415。
+case errors.Is(err, binding.ErrBadRequest):
+	// 应用可以映射为 400。
+case errors.Is(err, binding.ErrNonExistentKey):
+	// 必填泛型参数不存在。
+}
+```
+
+`ErrInvalidKeyType` 为兼容性保留；当前泛型转换会返回具体的“不支持类型”或解析错误，不应依赖这个值分类新代码。
+
+如果表单解析本身失败，`FormValue` 和 `FormValues` 会补充字段上下文，但不会把结果统一包装成 `BindingError`。应保留并检查底层错误，或在同一个 HTTP 边界完成映射。
+
+## 字段错误
+
+```go
+var fieldErr *binding.FieldError
+if errors.As(err, &fieldErr) {
+	log.Printf(
+		"field=%s message=%s values=%q",
+		fieldErr.Field,
+		fieldErr.Message,
+		fieldErr.Values,
+	)
+}
+```
+
+`FieldError` 同时 unwrap 到 `ErrBadRequest` 和底层转换错误。它的 JSON 形式只包含 `field` 与 `message`：
+
+```json
+{"field":"page","message":"failed to bind field value to int"}
+```
+
+提交值和内部错误不会被序列化。应用仍应把它映射成自己稳定的公开错误结构。
+
+## 一个 HTTP 错误边界
+
+```go
+func writeBindingError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, binding.ErrUnsupportedMediaType) {
+		status = http.StatusUnsupportedMediaType
+	}
+
+	payload := struct {
+		Error string `json:"error"`
+		Field string `json:"field,omitempty"`
+	}{Error: http.StatusText(status)}
+
+	var fieldErr *binding.FieldError
+	if errors.As(err, &fieldErr) {
+		payload.Field = fieldErr.Field
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+```
+
+结构体反射绑定会在错误文本中保留失败的输入键，但不会把所有失败都转换为 `FieldError`。只有 `errors.As` 成功时才读取字段详情。
+
+## 收集多个错误
+
+结构体和泛型函数每次调用返回一个错误。需要一次报告多个字段失败时，使用 Fluent API：
+
+```go
+binder := binding.QueryParamsBinder(r).
+	FailFast(false).
+	MustInt("page", &page).
+	MustInt("limit", &limit)
+
+if errs := binder.BindErrors(); len(errs) > 0 {
+	// 转换成应用自己的错误列表。
+}
+```
+
+## Binding 不是业务验证
+
+```go
+type listInput struct {
+	Page  int `query:"page"`
+	Limit int `query:"limit"`
+}
+
+func (in listInput) validate() error {
+	if in.Page < 1 {
+		return errors.New("page must be positive")
+	}
+	if in.Limit < 1 || in.Limit > 100 {
+		return errors.New("limit must be between 1 and 100")
+	}
+	return nil
+}
+```
+
+推荐的 Handler 顺序是：
+
+1. 绑定并转换传输层输入；
+2. 验证范围、格式和跨字段约束；
+3. 根据服务端可信身份执行授权；
+4. 显式映射为领域值；
+5. 执行业务逻辑。
+
+这样可以避免把解析错误、权限策略和领域冲突混成同一种响应。

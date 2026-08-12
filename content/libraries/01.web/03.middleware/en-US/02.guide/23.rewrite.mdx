@@ -1,0 +1,47 @@
+---
+title: Rewrite
+description: Rewrite request URLs internally with wildcard or regular-expression rules.
+---
+
+# Rewrite
+
+`Rewrite` changes a request URL before downstream execution without sending a redirect to the client.
+
+```go
+rewrite := middleware.Rewrite(map[string]string{
+	"/old":              "/new",
+	"/api/*":            "/$1",
+	"/users/*/orders/*": "/user/$1/order/$2",
+})
+
+handler := rewrite(mux)
+```
+
+Values captured by `*` are referenced as `$1`, `$2`, and so on. Rewriting happens once; the result is not repeatedly fed back through the rules.
+
+## Regular-expression rules
+
+```go
+rewrite := middleware.RewriteWithConfig(middleware.RewriteConfig{
+	RegexRules: map[*regexp.Regexp]string{
+		regexp.MustCompile(`^/v1/items/(\d+)$`): "/items/$1",
+	},
+	ErrorHandler: writeAPIError,
+})
+```
+
+Omitting both `Rules` and `RegexRules` panics during construction. The constructor clones configuration maps, so later mutation of the original map does not affect existing middleware.
+
+## Rules must be mutually exclusive
+
+Both rule kinds are ultimately merged into a map, and Go map iteration order is unspecified. Do not express precedence by writing a more specific rule first. Ensure that any RequestURI can match at most one rule.
+
+Matching uses `RequestURI`, so patterns must account for query strings. If the rewrite target cannot be parsed, the request enters `ErrorHandler` as `400 Bad Request`.
+
+## Rewrite versus redirect
+
+Use rewriting for internal legacy-path compatibility, removing a proxy prefix, or mapping an external URL onto a router path; the client address does not change. Use a redirect when clients, search engines, and caches should see the canonical URL.
+
+<Callout title="Do not hide a complex routing model">
+  A small set of mutually exclusive compatibility rules is easiest to maintain. Extensive rewriting often means the router, API versioning, or proxy boundary needs redesign.
+</Callout>

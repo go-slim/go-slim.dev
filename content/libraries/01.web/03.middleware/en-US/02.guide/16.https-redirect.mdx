@@ -1,0 +1,33 @@
+---
+title: HTTPSRedirect
+description: Redirect HTTP requests to HTTPS on the same host.
+---
+
+# HTTPSRedirect
+
+`HTTPSRedirect` sends a redirect when the request scheme is not HTTPS. Host, path, and query string remain unchanged.
+
+```go
+handler := middleware.HTTPSRedirect()(mux)
+```
+
+For example, `http://example.com/documents?page=2` becomes `https://example.com/documents?page=2`. An existing HTTPS request continues downstream.
+
+## Configure the status code
+
+```go
+redirect := middleware.HTTPSRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+The default is `301 Moved Permanently`. `Code` must be between 300 and 308 or construction panics. When a request may carry a body, 307 and 308 explicitly preserve its method and body.
+
+## Proxy trust boundary
+
+Scheme detection may consult forwarding headers. A trusted edge must remove client-supplied values before rebuilding them, or an attacker may make HTTP appear to be HTTPS. When TLS terminates at a proxy, that layer can also perform the redirect directly.
+
+For host canonicalization, see `HTTPSWWWRedirect` and `HTTPSNonWWWRedirect`.

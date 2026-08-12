@@ -1,0 +1,93 @@
+---
+title: API 速查
+description: 与源码一致的 h3 routing、application、lifecycle 和 response 导出 API 参考。
+---
+
+# API 速查
+
+本页汇总导出 API 和运行边界。示例与设计原因请继续阅读对应指南页面。
+
+## Router
+
+| API | 行为 |
+| --- | --- |
+| `NewRouter() *Router` | 创建空 declaration tree，此时没有 published routes。 |
+| `Use(func(http.Handler) http.Handler)` | 记录 middleware；nil 立即 panic。 |
+| `Handle(pattern, handler)` | 记录或替换完全相同的 pattern key；空 pattern、nil handler 会 panic。 |
+| `HandleFunc(pattern, handler)` | `Handle` 的函数形式；nil function 会 panic。 |
+| `Mount(prefix, child)` | 按 path prefix 挂载 child；nil child、空 prefix、mount cycle 会 panic。 |
+| `Build()` | 把完整 tree 编译成新 ServeMux 并原子发布；语法或冲突错误会 panic。 |
+| `CompileRoutes() []Route` | 以不确定顺序返回展开后的 patterns 和已包裹 middleware 的 handlers。 |
+| `Handler(request)` | 在当前 published snapshot 中查找 handler 和 pattern。 |
+| `ServeHTTP(writer, request)` | 服务当前 published snapshot；不会添加 `h3.Response`。 |
+
+`Route` 包含 `Pattern string` 和 `Handler http.Handler`。Handler 已经组合声明它的 router 及全部 mount ancestors 的 middleware。
+
+## App
+
+| API | 行为 |
+| --- | --- |
+| `New(options ...Options) *App` | 只复制第一个 options，Router 为 nil 时创建 router，并选择 fallback behavior。 |
+| `Use` / `Handle` / `HandleFunc` | 把 declarations 委托给 app root router。 |
+| `Register(Component)` | 挂载 component routes；值同时实现 `Servlet` 时注册 lifecycle。 |
+| `RegisterServlet(Servlet)` | 注册不拥有 routes 的 lifecycle；与 components 共享启动、停止顺序。 |
+| `Handler(request)` | 查找当前 root-router snapshot；未 build 的 declarations 不可见。 |
+| `ServeHTTP` | 用 `h3.Response` 包装 writer，再服务 routes 和 configured fallbacks。 |
+| `Start(ctx) error` | Build、listen、启动 servlets，并非阻塞地启动 serving。 |
+| `Stop() error` | 优雅关闭 HTTP、反向停止 servlets，并返回 joined errors。 |
+| `Run(ctx, app) error` | 启动后阻塞，直到本轮完全停止，包括 `OnStopped` 完成。 |
+
+`Register` 和 `RegisterServlet` 只允许在 app 停止时调用。Nil 值、无效或重复 normalized component prefix、运行中注册都会 panic。不要通过两个方法重复登记同一个 lifecycle owner。App lifecycle methods 遵循串行 single-owner contract。
+
+## Components 与 servlets
+
+```go
+type Component interface {
+	Prefix() string
+	Router() *Router
+}
+
+type Servlet interface {
+	Start(context.Context) error
+	Stop() error
+}
+```
+
+`NewComponent(prefix)` 只创建 route component。Concrete wrapper 只有实现 `Servlet` 才参与 lifecycle。Start 顺序等于注册顺序；stop 和 rollback 顺序相反。
+
+## Options
+
+| 字段 | 源码行为 |
+| --- | --- |
+| `Router` | Root router；nil 时创建新的空 router。 |
+| `NotFound` | 只替换 routing-layer 404；nil 保留 ServeMux 输出。 |
+| `MethodNotAllowed` | 替换 routing-layer 405，并收到计算后的 `Allow` header。 |
+| `Addr` | TCP listen address；空值在普通 HTTP 下变成 `:http`，配置 TLS 后变成 `:https`。 |
+| `PassOptionsStar` | 禁用 net/http 的 general `OPTIONS *` handler，让请求进入应用。 |
+| `TLSConfig` | 非 nil 时使用 `ServeTLS`；必须提供 certificate source。 |
+| `ReadTimeout` | 读取完整 request（包括 body）的最大持续时间。 |
+| `ReadHeaderTimeout` | Header read limit；零值回退到 `ReadTimeout`。 |
+| `WriteTimeout` | `http.Server` 语义下的 response write duration 上限。 |
+| `IdleTimeout` | Keep-alive idle limit；零值回退到 `ReadTimeout`。 |
+| `MaxHeaderBytes` | Parsed request-line/header limit；不限制 body size。 |
+| `TLSNextProto` | 自定义 ALPN protocol takeover map；非 nil 时改变自动 HTTP/2 defaults。 |
+| `ConnState` | 接收 connection state transitions。 |
+| `ErrorLog` | HTTP server diagnostics 和意外 serve-exit logging。 |
+| `OnStopped` | HTTP 与全部 servlets 停止后的完成通知；startup failure 不调用。 |
+| `HTTP2` | 字段存在，但目前不生效。 |
+| `Protocols` | 接受的 protocol set，可包含 unencrypted HTTP/2。 |
+
+## Response
+
+| API | 行为 |
+| --- | --- |
+| `NewResponse(writer)` | 已经是 `Response` 时原样返回，否则创建 tracking wrapper。 |
+| `Status() int` | 默认 200；记录第一个经 wrapper 写出的最终 status。 |
+| `Size() int64` | 统计经 wrapper 成功写出的 body bytes。 |
+| `Committed() bool` | 表示是否经 wrapper 的 `WriteHeader` 或 `Write` 提交。 |
+| `Unwrap()` | 返回直接包装的 writer，并支持 `ResponseController` 继续向内查找。 |
+| `Flush()` | 通过 `ResponseController` 委托；不支持时 panic。 |
+| `Hijack()` | 通过 `ResponseController` 委托；不支持时返回 error。 |
+| `Push()` | 委托给 `http.Pusher`；不支持时返回 error。 |
+
+直接通过 `Unwrap` 写入会绕过 metadata。`Response` 始终实现 optional protocol interfaces，因此底层是否支持应看调用结果，不能只看 type assertion。

@@ -1,0 +1,26 @@
+---
+title: 指南
+description: 从完整 Handler 开始，掌握 binding 的主要使用方式和输入来源。
+---
+
+# 指南
+
+先完成一个可运行的 Handler，再根据端点的输入形态选择 API。这里覆盖大多数应用会使用的请求绑定流程。
+
+## 推荐阅读顺序
+
+1. [快速开始](/zh-Hans/libraries/binding/guide/quick-start)：构建包含大小限制和错误处理的完整 `net/http` 流程。
+2. [结构体绑定](/zh-Hans/libraries/binding/guide/struct-binding)：理解 DTO 标签、来源优先级和自定义字段类型。
+3. [强类型取值](/zh-Hans/libraries/binding/guide/typed-values)：使用泛型函数和 Fluent API 转换字段。
+4. [请求体与文件](/zh-Hans/libraries/binding/guide/body-and-files)：处理 JSON、XML、表单和 multipart 上传。
+
+## 根据端点选择
+
+| 端点输入 | 从这里开始 |
+| --- | --- |
+| 路径与请求体中有多个字段 | 结构体绑定 |
+| 一个路径参数和少量查询选项 | 泛型强类型取值 |
+| 从同一来源读取多个值并收集错误 | Fluent 强类型取值 |
+| JSON、XML、表单或上传文件 | 请求体与文件 |
+
+完成主要流程后，继续阅读[进阶](/zh-Hans/libraries/binding/advanced)，了解错误契约和请求生命周期。

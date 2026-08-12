@@ -1,0 +1,141 @@
+---
+title: Struct binding
+description: Learn how path, query, header, and body input reaches dedicated structs.
+---
+
+# Struct binding
+
+When a handler accepts several fields, a struct makes the input contract explicit.
+
+```go
+type searchInput struct {
+	ProjectID uint     `param:"project_id"`
+	Query     string   `query:"q"`
+	Tags      []string `query:"tag"`
+	RequestID string   `header:"X-Request-ID"`
+}
+```
+
+The target must be a non-nil pointer. Path, query, header, and form binding expect a pointer to a struct or supported map. JSON and XML targets follow their respective standard-library decoder rules.
+
+## DefaultBinder order
+
+`DefaultBinder.Bind` performs a fixed sequence:
+
+1. path values;
+2. query values only for `GET`, `DELETE`, `HEAD`, and `QUERY`;
+3. request body.
+
+A later source may overwrite a field written by an earlier source. Headers are never included automatically.
+
+```go
+var input searchInput
+if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+	return err
+}
+if err := binding.BindHeaders(r, &input); err != nil {
+	return err
+}
+```
+
+<Callout type="warning" title="Query input on write requests is explicit">
+  `DefaultBinder` does not automatically read query values for `POST`, `PUT`,
+  or `PATCH`. If query is part of that API contract, call `BindQueryParams`
+  explicitly and make its overwrite position visible in call order.
+</Callout>
+
+## Bind one source
+
+```go
+err := binding.BindPathValues(r, &input)
+err = binding.BindQueryParams(r, &input)
+err = binding.BindHeaders(r, &input)
+err = binding.BindBody(r, &input)
+```
+
+These functions also let an endpoint compose sources in an order different from the default. Call order then becomes overwrite order.
+
+## Tags
+
+| Tag | Input source |
+| --- | --- |
+| `param:"id"` | `r.PathValue("id")` |
+| `query:"page"` | URL query values |
+| `header:"X-Request-ID"` | Request headers |
+| `form:"name"` | URL-encoded or multipart forms |
+| `json:"name"` | `encoding/json` |
+| `xml:"name"` | `encoding/xml` |
+| `format:"2006-01-02"` | `time.Time` layout in reflection binding |
+
+Path, query, header, and form fields require an explicit source tag. Untagged ordinary nested structs are traversed for tagged children. A source tag directly on an anonymous embedded struct is rejected.
+
+## How values reach fields
+
+- Scalar fields use the first input value.
+- Slice fields receive all values for the same key.
+- An exact key wins; if absent, binding falls back to a case-insensitive match.
+- Strings, booleans, signed and unsigned integers, floats, pointers, slices, and nested structs are supported.
+- Empty strings convert to `0`, `false`, or `0.0` for numeric, boolean, and floating fields.
+
+```go
+type listInput struct {
+	Page int      `query:"page"`
+	Tag  []string `query:"tag"`
+}
+```
+
+For `?page=2&tag=go&tag=http`, the result is `Page == 2` and `Tag == []string{"go", "http"}`.
+
+## Map destinations
+
+Source-specific binding supports three map shapes:
+
+```go
+map[string]string
+map[string][]string
+map[string]any
+```
+
+`map[string]string` and `map[string]any` retain only the first value. Maps are useful for controlled pass-through or diagnostics; prefer structs for stable public endpoint contracts.
+
+## Custom values
+
+Fields may implement:
+
+```go
+type BindUnmarshaler interface {
+	UnmarshalParam(string) error
+}
+```
+
+binding also recognizes `encoding.TextUnmarshaler`:
+
+```go
+type slug string
+
+func (s *slug) UnmarshalParam(value string) error {
+	if value == "" {
+		return errors.New("empty slug")
+	}
+	*s = slug(strings.ToLower(value))
+	return nil
+}
+```
+
+For `time.Time`, a `format` tag supplies a `time.Parse` layout:
+
+```go
+type reportInput struct {
+	Date time.Time `query:"date" format:"2006-01-02"`
+}
+```
+
+## Keep input models narrow
+
+```go
+type updateAccountInput struct {
+	DisplayName string `json:"display_name"`
+}
+```
+
+Do not bind directly into a domain object containing privilege fields, owner IDs, or persistence state. Bind, validate, authorize, and then map explicitly so clients cannot write fields they do not own.

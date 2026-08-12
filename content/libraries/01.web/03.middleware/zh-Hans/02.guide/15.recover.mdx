@@ -1,0 +1,42 @@
+---
+title: Recover
+description: 捕获下游 panic、保留标准库中止语义，并交给统一错误处理。
+---
+
+# Recover
+
+`Recover` 捕获下游 handler 的 panic，并在尚可写响应时返回 `500 Internal Server Error`。通常把它放在 middleware stack 最外层。
+
+```go
+handler := middleware.Recover()(mux)
+```
+
+`http.ErrAbortHandler` 是例外：middleware 会重新 panic，让 `net/http` 保持“中止连接且不记录重复 stack”的标准语义。
+
+## Stack 与错误记录
+
+```go
+recoverer := middleware.RecoverWithConfig(middleware.RecoverConfig{
+	StackSize:       16 << 10,
+	DisableStackAll: true,
+	ErrorHandler: func(w http.ResponseWriter, r *http.Request, status int, err error) {
+		var panicErr *middleware.PanicStackError
+		if errors.As(err, &panicErr) {
+			slog.Error("handler panic", "error", panicErr.Err, "stack", string(panicErr.Stack))
+		}
+		http.Error(w, http.StatusText(status), status)
+	},
+})
+```
+
+默认 stack buffer 为 4 KiB，并包含其他 goroutine。`DisableStackAll` 只保留当前 goroutine；`DisablePrintStack` 完全不捕获 stack，此时传给错误处理器的是原始 panic error。
+
+启用 stack 时，错误类型为 `*PanicStackError`，并可通过 `errors.Is` / `errors.As` 访问原始错误。
+
+## 响应已经提交时
+
+默认错误处理不会覆盖已提交的响应，因为状态和部分 body 可能已经发给客户端。若设置自定义 `ErrorHandler`，即使响应已经提交它仍会被调用；处理器必须自行判断还能否写入，通常只记录错误并终止。
+
+<Callout title="Recover 不是事务回滚">
+  它只能保护 HTTP 进程边界，无法撤销已发生的数据库写入、外部调用或部分响应。领域操作仍需自己的事务与幂等设计。
+</Callout>

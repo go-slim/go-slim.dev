@@ -1,0 +1,46 @@
+---
+title: Secure
+description: Centralize browser security headers and HTTPS policy on responses.
+---
+
+# Secure
+
+`Secure` sets browser security headers before calling downstream. By default it writes:
+
+```http
+X-XSS-Protection: 1; mode=block
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+```
+
+```go
+handler := middleware.Secure()(mux)
+```
+
+## CSP, HSTS, and Referrer Policy
+
+```go
+secure := middleware.SecureWithConfig(middleware.SecureConfig{
+	XSSProtection:         "0",
+	ContentTypeNosniff:    "nosniff",
+	XFrameOptions:         "DENY",
+	HSTSMaxAge:            31536000,
+	HSTSPreloadEnabled:    false,
+	ContentSecurityPolicy: "default-src 'self'; object-src 'none'",
+	ReferrerPolicy:        "strict-origin-when-cross-origin",
+})
+```
+
+`HSTSMaxAge` defaults to `0`, so HSTS is disabled. When enabled, the header is written only if `Request.TLS` is non-nil or `X-Forwarded-Proto` is `https`. Subdomains are included by default; set `HSTSExcludeSubdomains` to exclude them. `HSTSPreloadEnabled` only adds the `preload` directive; it does not submit or validate the domain for you.
+
+`CSPReportOnly` writes the policy to `Content-Security-Policy-Report-Only`, which is useful for observing violations before enforcement. The application owns the policy string and must account for real script, style, image, frame, and connection sources.
+
+## Behind a reverse proxy
+
+The HSTS decision may rely on `X-Forwarded-Proto`. A trusted edge must remove client-supplied values and rebuild the header, or an HTTP request may be mistaken for HTTPS.
+
+Place `Secure` outside middleware that can generate errors if security headers should cover error responses. If only application pages need them, narrow the mount or use `Skipper`.
+
+<Callout title="Headers are not a one-time checklist">
+  CSP, framing policy, HSTS, and Referrer Policy must match the actual deployment and frontend resource model. Validate in staging and roll out progressively.
+</Callout>

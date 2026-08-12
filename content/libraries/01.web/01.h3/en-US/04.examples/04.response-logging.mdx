@@ -1,0 +1,50 @@
+---
+title: Response logging
+description: Log final status and response size from h3.Response.
+---
+
+# Response logging
+
+When serving through `App`, handlers receive an `h3.Response`. Middleware can read final response metadata after calling next.
+
+```go
+func responseLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		response := h3.NewResponse(w)
+
+		defer func() {
+			log.Printf(
+				"method=%s pattern=%q status=%d size=%d committed=%t duration=%s",
+				r.Method,
+				r.Pattern,
+				response.Status(),
+				response.Size(),
+				response.Committed(),
+				time.Since(started),
+			)
+		}()
+
+		next.ServeHTTP(response, r)
+	})
+}
+```
+
+Register it as ordinary middleware:
+
+```go
+router := h3.NewRouter()
+router.Use(responseLog)
+router.HandleFunc("GET /health", health)
+```
+
+`NewResponse` returns the existing h3 response when the middleware runs under `App`, and adds tracking when the same middleware is reused with a standalone router. The deferred log also runs while a panic unwinds toward an outer recovery middleware.
+
+## Caveats
+
+- Route-error handlers are app-boundary handlers; wrap them manually if route misses also need the same logging.
+- Place this logger outside recovery if it must observe the final status written after a recovered panic; register the logger before recovery.
+- Streaming and hijacked responses need protocol-specific interpretation.
+- `Response` records final status; interim responses should be written through `Unwrap`.
+- Writes through `Unwrap`, plus `Flush` or `Hijack` performed before wrapper commit, can bypass metadata accounting.
+- `Status()==200` with `Committed()==false` means no final response was written through the wrapper.

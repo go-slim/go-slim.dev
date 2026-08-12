@@ -1,0 +1,134 @@
+---
+title: Getting started
+description: Install h3 and create the first HTTP server.
+---
+
+# Getting started
+
+Install the module:
+
+```sh
+go get go-slim.dev/h3
+```
+
+## Create a server
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"go-slim.dev/h3"
+)
+
+func main() {
+	app := h3.New(h3.Options{Addr: ":8080"})
+
+	app.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("user=" + r.PathValue("id")))
+	})
+
+	// This context belongs to initialization only.
+	if err := app.Start(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	shutdown, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+	<-shutdown.Done()
+
+	if err := app.Stop(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+`App.Start` creates the listener before returning, so invalid addresses, permission failures, and occupied ports are reported synchronously. The HTTP service then runs in the background until `Stop` or a serving error completes it.
+
+`Start` is non-blocking. Keeping the process alive and deciding when to call `Stop` are application responsibilities. Without TLS the default address is `:http` (port 80), so set `Addr` explicitly for local development and unprivileged deployments; configuring `TLSConfig` changes the default to `:https` (port 443).
+
+<Callout title="Startup context is not a shutdown context">
+  Cancelling the context passed to `Start` after `Start` succeeds does not stop
+  the server. In the example, signal cancellation is kept separate and leads
+  to an explicit `app.Stop()` call.
+</Callout>
+
+## Add a router explicitly
+
+For small applications, `App` exposes route helpers directly. For larger applications, configure a router and pass it through options:
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /health", health)
+router.HandleFunc("GET /users/{id}", getUser)
+
+api := h3.NewRouter()
+api.HandleFunc("POST /sessions", createSession)
+router.Mount("/api", api)
+
+app := h3.New(h3.Options{
+	Addr:   ":8080",
+	Router: router,
+})
+```
+
+The router is built when the app starts. If you serve a router directly without `App`, call `router.Build()` after configuration.
+
+Before its first successful `Build`, a standalone router behaves like an empty `http.ServeMux` and returns 404. Later declarations also remain invisible until the next successful build.
+
+## Use path values
+
+h3 delegates matching to `http.ServeMux`, so path values are read from the request:
+
+```go
+app.HandleFunc("GET /files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	_, _ = w.Write([]byte(path))
+})
+```
+
+No h3-specific context is required. If you need request-local values, use `r.Context()` the same way you would in plain `net/http`.
+
+## Return JSON errors
+
+Route misses can be customized at the app boundary:
+
+```go
+func jsonError(status int, code string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   false,
+			"code": code,
+		})
+	})
+}
+
+app := h3.New(h3.Options{
+	Addr:             ":8080",
+	NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+	MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+})
+```
+
+Matched handlers still own their own errors. h3 only replaces routing-layer 404 and 405 responses.
+
+For a custom 405 handler, h3 preserves the `Allow` header computed by `http.ServeMux`. Path-cleaning and trailing-slash redirects are also kept as standard `ServeMux` behavior; they are not replaced by `NotFound`.
+
+## Before production
+
+- Set `ReadHeaderTimeout`; consider request-specific body limits in handlers or middleware.
+- Install panic recovery, request IDs, access logging, and security middleware explicitly.
+- Make every servlet's cleanup bounded; `App.Stop` itself has no deadline parameter.
+- Check errors returned by startup and shutdown. Serving failures are also reported through `OnStopped` or `Run`.

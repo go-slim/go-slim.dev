@@ -1,0 +1,30 @@
+---
+title: AddTrailingSlash
+description: 在进入 router 前为非根路径添加末尾斜杠。
+---
+
+# AddTrailingSlash
+
+`AddTrailingSlash` 为没有末尾 `/` 的路径添加斜杠。默认直接修改 `URL.Path` 与 `RequestURI` 后调用下游，不产生客户端往返。
+
+```go
+// /documents?sort=new -> /documents/?sort=new
+handler := middleware.AddTrailingSlash()(mux)
+```
+
+根路径 `/` 保持不变，query string 会被保留。把 middleware 放在 router 外层，让路由匹配规范化后的路径。
+
+## 发送 redirect
+
+```go
+addSlash := middleware.AddTrailingSlashWithConfig(
+	middleware.AddTrailingSlashConfig{
+		RedirectCode: http.StatusPermanentRedirect,
+		Skipper:      skipFilePaths,
+	},
+)
+```
+
+`RedirectCode` 为零时内部转发；设为 300 到 308 时发送外部 redirect。范围外的值会在构造时 panic。redirect target 会清理开头的双 slash 或反斜杠，避免 open redirect。
+
+不要同时启用 `RemoveTrailingSlash`，也要关闭 router 或上游中相反方向的自动规范化，否则会形成循环。

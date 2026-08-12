@@ -1,0 +1,136 @@
+---
+title: 生命周期
+description: 启动 HTTP 服务、管理 servlet，并记录最终响应元数据。
+---
+
+# 生命周期
+
+`App` 组合 router、`http.Server` 和可选 servlet。它自身也实现 `Servlet`，因此更大的进程可以用同一种形态管理多个 app-like 组件。
+
+## 启动与停止
+
+`Start(ctx)` 按顺序执行启动：
+
+1. 编译路由。
+2. 同步创建 TCP listener。
+3. 启动 servlet。
+4. 在后台运行 HTTP 或 HTTPS。
+
+`Stop()` 反向关闭：
+
+1. 调用 `http.Server.Shutdown`。
+2. 等待进行中的请求。
+3. 按注册的反向顺序停止 servlet。
+4. 将关闭错误合并成一个返回值。
+
+`Stop` 完成后，同一个 app 可以再次启动。
+
+本轮仍在运行时再次 `Start` 会返回 `h3: app is already started`。启动前或停止完成后调用 `Stop` 会返回 nil。这些返回行为不代表并发生命周期调用安全；生命周期仍遵循单一 owner、串行执行的约定。
+
+## 影响服务行为的 options
+
+常见 app options 包括：
+
+| Option | 作用 |
+| --- | --- |
+| `Addr` | HTTP listener 使用的 TCP 地址。 |
+| `Router` | 要 build 并服务的 router。 |
+| `Server` | app 需要拥有 server lifecycle 时使用的既有 `http.Server` 设置。 |
+| `TLSConfig` / certificate settings | app 直接服务 TLS 时的 HTTPS 启动配置。 |
+| `NotFound` | routing-layer 404 handler。 |
+| `MethodNotAllowed` | routing-layer 405 handler。 |
+| `OnStopped` | HTTP 服务和 servlets 停止后的回调。 |
+
+control-plane 调用应保持串行。`Start` 和 `Stop` 是生命周期转换，不是 request-path 操作。
+
+`Addr` 为空时，普通 HTTP 默认使用 `:http`，配置 `TLSConfig` 后默认使用 `:https`。`App.Start` 会在启动 servlet 前同步校验地址和 TLS 证书入口、构建 routes、打开 listener。Route grammar 冲突在 `Build` 中 panic；普通地址、TLS、listener、context 和 servlet 启动失败则作为 error 返回。
+
+## 启动 context
+
+传给 `Start` 的 context 控制初始化，不隐式代表所有请求的生命周期。如果启动过程中 context 被取消，h3 会关闭 listener，并回滚已经成功启动的 servlet。
+
+运行中的 app 由 `Stop` 或 HTTP 服务退出完成收尾。这可以避免初始化 context 后续取消时意外取消所有请求。
+
+HTTP request 的 base context 由当前 app run 自己拥有，不从 startup context 派生。客户端断开和 server 完成 shutdown 时，请求取消仍遵循普通 `net/http` 规则。
+
+## Servlets
+
+需要和 HTTP app 一起启动、停止的后台资源可以做成 servlet。下面的实现既能安全重复停止，也能在 app 后续运行轮次中复用：
+
+```go
+type workerComponent struct {
+	lifecycle sync.Mutex
+	stop      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func (c *workerComponent) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop != nil {
+		return errors.New("worker is already started")
+	}
+
+	stop := make(chan struct{})
+	c.stop = stop
+	c.wg.Add(1)
+	// Start context 只控制启动检查和回滚。
+	// Worker 接收本轮运行自己拥有的 channel。
+	go func() {
+		defer c.wg.Done()
+		runWorker(stop)
+	}()
+	return nil
+}
+
+func (c *workerComponent) Stop() error {
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.stop == nil {
+		return nil
+	}
+
+	close(c.stop)
+	c.wg.Wait()
+	c.stop = nil
+	return nil
+}
+```
+
+通过 `app.RegisterServlet(servlet)` 注册没有路由的 servlet。一个 Component 同时实现 `Servlet` 时，只需调用 `app.Register(component)`，h3 会自动登记它的 lifecycle。生命周期转换应由单一控制流串行拥有；并发 `Start` 和 `Stop` 没有唯一正确顺序。
+
+不要把 `Start` context 传给长期运行的 worker loop。这个 context 只控制启动检查和回滚。运行期关闭应由 servlet 自己拥有的资源驱动，例如每一轮独立的 `stop` channel。
+
+Servlet contract 会为每次成功的 `Start` 调用一次 `Stop`，但 defensive component 通常还会允许其他 owner 重复清理。永久的 `sync.Once` 不适合可重启 component：第一轮之后，它无法关闭下一轮的新 channel。应逐轮重置状态，并在 `Stop` 返回前等待 worker goroutine 退出。
+
+## 回滚行为
+
+如果启动在部分 servlet 已经成功启动后失败，h3 会停止已启动的 servlet 并关闭 listener。这可以避免 HTTP 不可用但后台 worker 仍然运行的半启动状态。
+
+`Stop` 按反向注册顺序停止 servlet。依赖项应先注册，被依赖者会后停止。
+
+Servlet lifecycle 调用有 panic boundary。`Start` panic 会成为启动错误；`Stop` panic 会和其他 shutdown errors 合并，因此后续 servlet 仍然会被停止。启动回滚期间的 cleanup errors 只记录日志，返回值仍保留最初的 startup failure。
+
+## 完成通知与错误
+
+- 手动 `Stop` 返回 HTTP shutdown、serving 和全部 servlet stop errors 的合并结果。
+- HTTP serve 意外退出也走同一清理路径，并向 `OnStopped` 报告 `manual=false`。
+- 成功运行前发生的 startup failure 不会调用 `OnStopped`。
+- `Stop` 等待 HTTP 和 servlet 清理，但不等待 `OnStopped` 返回。
+- `Run` 会等清理及已配置的 `OnStopped` callback 都完成，再返回本轮 error。
+
+## 关闭边界
+
+`Stop` 有意不接收 context 或 timeout。`http.Server.Shutdown` 会等待 active HTTP handlers，servlet `Stop` 也会同步执行。因此 long-running handler、streaming response 和后台 loop 都要有应用自己拥有的终止策略。Hijacked connection 不受 `http.Server.Shutdown` 管理，执行 hijack 的 component 必须自行跟踪并关闭它们。
+
+## 响应元数据
+
+h3 可以包装 response，记录最终 status 和 size。临时响应、hijack 连接和高级协议细节仍通过 `Unwrap` 与 `http.ResponseController` 使用。
+
+这个能力适合 access log 和 tracing，但协议层行为仍应放在标准库原语里。
+
+响应元数据面向最终响应。临时响应、`Flush`、`Hijack`、协议升级等高级场景仍应使用 `http.ResponseController` 或 unwrapped writer 处理。

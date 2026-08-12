@@ -1,0 +1,26 @@
+---
+title: Guide
+description: Learn the main binding workflows from a complete handler to each input source.
+---
+
+# Guide
+
+Start with a working handler, then choose the API that matches the shape of the endpoint. These chapters cover the request-binding paths used by most applications.
+
+## Recommended path
+
+1. [Quick start](/libraries/binding/guide/quick-start) builds a complete `net/http` flow with source limits and error handling.
+2. [Struct binding](/libraries/binding/guide/struct-binding) explains DTO tags, source precedence, and custom field types.
+3. [Typed values](/libraries/binding/guide/typed-values) covers generic helpers and fluent multi-field conversion.
+4. [Bodies and files](/libraries/binding/guide/body-and-files) covers JSON, XML, forms, and multipart uploads.
+
+## Choose by endpoint shape
+
+| Endpoint input | Start with |
+| --- | --- |
+| Several fields from path and body | Struct binding |
+| One path value and a few query options | Generic typed values |
+| Several values from one source with collected errors | Fluent typed values |
+| JSON, XML, form, or uploaded files | Bodies and files |
+
+After the primary flow works, continue to [Advanced](/libraries/binding/advanced) for error contracts and request-lifecycle details.

@@ -1,0 +1,86 @@
+---
+title: Response metadata
+description: 记录最终响应 status 和 size，同时不隐藏 net/http 协议行为。
+---
+
+# Response metadata
+
+通过 `App` 服务时，handler 收到的是 `h3.Response`。它包装 `http.ResponseWriter`，并记录最终 status、response body bytes 和 commit state。
+
+独立 router 不会自动包装 writer。`App` 之外需要 metadata 时，显式使用 `h3.NewResponse`。
+
+`NewResponse` 是幂等的：传入已经是 `h3.Response` 的值会原样返回，不会再叠一层 counters。
+
+## 读取 metadata
+
+```go
+func responseLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+
+		response := w.(h3.Response)
+		log.Printf(
+			"status=%d size=%d committed=%t",
+			response.Status(),
+			response.Size(),
+			response.Committed(),
+		)
+	})
+}
+```
+
+这个能力适合 access logs、tracing spans，以及需要最终 response details 的 metrics。
+
+这些字段应组合理解：
+
+| 字段 | 含义 |
+| --- | --- |
+| `Status()` | 即使尚未写入也默认返回 200；commit 后表示第一个经 wrapper 写出的最终 status。 |
+| `Committed()` | 区分完全未触碰的 response 与已经隐式或显式提交的 response。 |
+| `Size()` | 统计经 wrapper 实际成功写出的字节，不是尝试写入的字节。 |
+
+如果 handler 什么都不写，`Status()` 仍是 200，但 `Committed()` 为 false。未触碰 response 有特殊含义时，logging 应保留这个区别。
+
+## 可选能力
+
+底层 writer 支持时，`Response` 会暴露协议能力：
+
+| Method | 行为 |
+| --- | --- |
+| `Flush` | 保持 `http.Flusher` 形态；底层 writer 不能 flush 时 panic。 |
+| `Hijack` | writer 不能 hijack 时返回 error。 |
+| `Push` | server push 不支持时返回 error。 |
+| `Unwrap` | 直接访问底层 writer。 |
+
+为了兼容旧代码，`Response` 始终实现 `Flusher`、`Hijacker` 和 `Pusher` 接口。因此 type assertion 成功不代表底层 writer 支持操作。`Flush` 遇到 `http.ErrNotSupported` 会 panic；`Hijack` 和 `Push` 返回 error。
+
+新代码可以使用 `http.NewResponseController(w)`，它能沿 `Unwrap` 查找底层支持的 protocol operation。
+
+## 临时响应
+
+`Response` 记录一个最终 status。临时响应通过 `Unwrap` 写入，最终响应通过 wrapper 写入：
+
+```go
+response := w.(h3.Response)
+response.Unwrap().WriteHeader(http.StatusEarlyHints)
+response.WriteHeader(http.StatusOK)
+```
+
+所有直接通过 `Unwrap` 写出的数据都会绕过 h3 的 status、size 和 commit accounting。临时响应需要这个行为，但最终响应如果要求 metadata 准确，应通过 `Response` 写出。
+
+Streaming 时，应在第一次 flush 前通过 wrapper 提交最终 status：
+
+```go
+response := w.(h3.Response)
+response.Header().Set("Content-Type", "text/event-stream")
+response.WriteHeader(http.StatusOK)
+response.Flush()
+```
+
+如果没有先经 wrapper 写入就直接 `Flush` 或 `Hijack`，底层 protocol state 可能已经改变，但 `Committed`、`Size` 不会同步更新。Streaming 和 upgraded-connection metrics 应显式考虑这个边界。
+
+## 并发
+
+和 `http.ResponseWriter` 一样，`Response` 不会让并发写入变安全。如果多个 goroutine 生成内容，应在写 header 和 body 前汇总或同步。
+
+只有第一次最终 `WriteHeader` 会被记录。后续调用会被忽略并记录为 programming error。所有 headers 都应在第一次 `WriteHeader` 或 `Write` 前设置。

@@ -1,0 +1,42 @@
+---
+title: Recover
+description: Recover downstream panics, preserve standard abort semantics, and delegate unified error handling.
+---
+
+# Recover
+
+`Recover` catches a panic from downstream handlers and produces `500 Internal Server Error` when a response can still be written. It normally belongs at the outside of the middleware stack.
+
+```go
+handler := middleware.Recover()(mux)
+```
+
+`http.ErrAbortHandler` is the exception: the middleware re-panics it so `net/http` retains its standard “abort the connection without duplicate stack logging” behavior.
+
+## Stack capture and error logging
+
+```go
+recoverer := middleware.RecoverWithConfig(middleware.RecoverConfig{
+	StackSize:       16 << 10,
+	DisableStackAll: true,
+	ErrorHandler: func(w http.ResponseWriter, r *http.Request, status int, err error) {
+		var panicErr *middleware.PanicStackError
+		if errors.As(err, &panicErr) {
+			slog.Error("handler panic", "error", panicErr.Err, "stack", string(panicErr.Stack))
+		}
+		http.Error(w, http.StatusText(status), status)
+	},
+})
+```
+
+The default stack buffer is 4 KiB and includes other goroutines. `DisableStackAll` keeps only the current goroutine; `DisablePrintStack` disables stack capture entirely, so the error handler receives the original panic error.
+
+With capture enabled, the error is a `*PanicStackError` and unwraps for `errors.Is` / `errors.As`.
+
+## When a response is already committed
+
+The default error path does not overwrite an already committed response because its status and part of its body may have reached the client. A custom `ErrorHandler` is still called for a committed response; it must decide whether writing remains possible and will usually only record the failure.
+
+<Callout title="Recover is not transaction rollback">
+  It protects the HTTP process boundary, but cannot undo database writes, external calls, or a partial response. Domain operations still need their own transaction and idempotency design.
+</Callout>

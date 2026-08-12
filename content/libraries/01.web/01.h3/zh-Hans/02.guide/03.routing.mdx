@@ -1,0 +1,122 @@
+---
+title: 路由
+description: 构建 route tree、挂载 router，并发布不可变路由快照。
+---
+
+# 路由
+
+`Router` 记录 route 声明、中间件和子 router。`Build` 会把完整树编译成新的 `http.ServeMux`，并原子发布。
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /users", listUsers)
+router.HandleFunc("GET /users/{id}", getUser)
+router.HandleFunc("POST /users", createUser)
+router.HandleFunc("GET /files/{path...}", serveFile)
+router.Build()
+```
+
+第一次 `Build` 之前，router 表现得像空的 `http.ServeMux`，会返回 404。后续配置变更需要再次 `Build`；已经选中旧路由表的请求继续使用旧表。
+
+## Pattern 语法
+
+h3 直接使用 `http.ServeMux` 语法。因此同样规则适用：
+
+| Pattern | 含义 |
+| --- | --- |
+| `GET /users` | 匹配 method 和 path。 |
+| `GET /users/{id}` | 匹配一个 path segment，并暴露 `id`。 |
+| `GET /files/{path...}` | 匹配剩余 path，并暴露 `path`。 |
+| `GET /posts/{$}` | 只匹配 `/posts/`，不匹配它的子树。 |
+| `/assets/` | 不限制 method，匹配整个 path subtree。 |
+| `GET example.com/users` | 匹配 host 和 path。 |
+
+标准库也负责 GET/HEAD 行为、wildcard specificity、host-qualified pattern 和 method-not-allowed 判断。h3 不重新实现这些规则。
+
+特别是，除非存在更具体的 `HEAD` pattern，`GET /resource` 也会匹配 `HEAD /resource`。进入 matched handler 后，可以通过 `r.PathValue` 读取路径值，通过 `r.Pattern` 读取已经完整展开的最终 pattern。
+
+尾斜杠重定向和路径清理同样来自 `ServeMux`。只接受精确的带斜杠路径时声明 `GET /posts/{$}`；要匹配完整子树时使用 `GET /posts/`。
+
+## 配置模型
+
+Router 配置面向启动阶段，不是并发安全的。不要并发调用 `Use`、`Handle`、`HandleFunc`、`Mount` 或带配置写入的 `Build`。
+
+已经发布的路由表可以并发处理请求。没有配置写入时，`Build` 也可以和请求处理并行。
+
+应把配置当作 single-writer control plane。原子 snapshot 只保护发布和请求侧读取，不会让 handler maps、mount tree 或 middleware slice 的并发修改变安全。
+
+## 重复声明
+
+- 后声明的同字符串 `Handle` 或 `HandleFunc` 会替换前一个 handler。
+- 后声明的同规范化前缀 `Mount` 会替换前一个 child router。
+- 不同字符串但在 `http.ServeMux` 下冲突的模式会由 `Build` 检出并 panic。失败的 build 不会替换已发布的路由表。
+
+`Handle` 只提前检查空 pattern 和 nil handler。完整语法与冲突校验发生在 `Build` 内部，因此应在启动期构建 route tree，让 panic 明确表示配置错误。
+
+## 挂载 router
+
+`Mount` 在编译阶段展开 child pattern。它不会在运行时 strip URL prefix，因此 handler 看到的是原始 URL，`r.Pattern` 也包含所有前缀。
+
+```go
+api := h3.NewRouter()
+api.HandleFunc("GET /health", health)
+
+root := h3.NewRouter()
+root.Mount("/api", api)
+root.Build()
+// 最终 pattern: GET /api/health
+```
+
+构建 parent 会展开 child declarations，但不会发布 child 自己的独立 snapshot。直接服务 child 时，在 `child.Build()` 前仍会得到 404。反过来，只重建 child 也不会更新已经发布的 parent snapshot；mounted changes 要通过 parent 生效，就要重建 parent。
+
+带 host 的标准库 pattern 也可以挂载。只有 path 部分接收前缀：
+
+```go
+tenant := h3.NewRouter()
+tenant.HandleFunc("GET example.com/users", users)
+
+root.Mount("/api", tenant)
+root.Build()
+// 最终 pattern: GET example.com/api/users
+```
+
+挂载 nil router、直接循环或间接循环会立即 panic。
+
+## Mount prefix 规范化
+
+Mount prefix 始终是 path。`"api"` 会规范化为 `"/api"`，`/api` 和 `/api/` 会被视为同一个 mount prefix 并用于替换。
+
+child route pattern 仍然遵循 `ServeMux` 语法。这个区别很重要：
+
+```go
+child.HandleFunc("GET /users", users)      // path
+child.HandleFunc("GET api/users", users)   // host "api", path "/users"
+```
+
+child router 中写 path 时要带前导 slash。
+
+## 路由错误
+
+独立 `Router` 使用标准库的 404 和 405 响应。通过 `App` 服务时，可以用 `Options.NotFound` 和 `Options.MethodNotAllowed` 定制路由未命中：
+
+```go
+app := h3.New(h3.Options{
+	Router:           router,
+	NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+	MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+})
+```
+
+请求到底是 404 还是 405 仍由 `http.ServeMux` 判断。h3 只在 app 边界替换响应内容。
+
+route-error handler 不是注册 route，因此 router middleware 不会自动作用于它们。如果路由未命中也需要相同的 logging、CORS 或 tracing，需要自行包裹自定义 404/405 handler。
+
+自定义 405 handler 会收到标准 `Allow` header。Matched handler 即使主动写出 404，也仍然是正常 route，不会被 `Options.NotFound` 替换。`ServeMux` 的路径清理重定向也会原样保留，不会误判为 miss。
+
+## 常见错误
+
+- 直接服务 standalone router 时忘记调用 `Build`。
+- 把 mount prefix 当成完整 pattern；它永远是 path，method 和 host 应写在 child route pattern 中。
+- 以为 `Mount` 会 strip URL prefix；它实际在编译期展开声明，因此 handler 看到原始 URL。
+- 依赖声明顺序或 compilation order；handler 由 ServeMux specificity 选择，不由 map 遍历顺序决定。
+- parent 正在编译 child 时修改 child；整个 declaration tree 都遵循 single-writer 规则。

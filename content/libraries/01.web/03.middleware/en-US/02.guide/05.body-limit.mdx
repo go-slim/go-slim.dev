@@ -1,0 +1,58 @@
+---
+title: BodyLimit
+description: Limit request-body bytes while accounting for declared and streamed lengths.
+---
+
+# BodyLimit
+
+`BodyLimit` places a hard bound on a request body so handlers cannot read unbounded client input.
+
+```go
+// 2 MiB
+handler := middleware.BodyLimit(2 << 20)(mux)
+```
+
+The limit must be greater than zero or the constructor panics.
+
+## Two rejection points
+
+When `Content-Length` exceeds the limit, the middleware returns `413 Request Entity Too Large` through `ErrorHandler` before calling downstream.
+
+When the request has no reliable `Content-Length`, the middleware can only wrap `Request.Body`. Reading exactly the limit is valid; a subsequent read that proves more data exists returns:
+
+```go
+&http.MaxBytesError{Limit: limitBytes}
+```
+
+The downstream body consumer must translate that read error into a response. Once downstream execution has begun, the middleware cannot safely replace a response on the consumer's behalf.
+
+```go
+var input CreateDocument
+if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	var limitErr *http.MaxBytesError
+	if errors.As(err, &limitErr) {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, "invalid JSON", http.StatusBadRequest)
+	return
+}
+```
+
+The same `*http.MaxBytesError` is passed to `ErrorHandler` when a declared `Content-Length` is already above the limit, together with the recommended status `413`.
+
+## Configuration and order
+
+```go
+limit := middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
+	LimitBytes:   2 << 20,
+	Skipper:      skipUploadStream,
+	ErrorHandler: writeAPIError,
+})
+```
+
+Place `BodyLimit` outside `BodyDump`, form parsing, binding, and anything else that eagerly reads the body. When combined with `Decompress`, this middleware limits the compressed transfer body; also configure a decompressed-size limit in `Decompress`.
+
+<Callout title="Do not rely on Content-Length alone">
+  Clients may omit the length or use chunked transfer. Every body consumer must check read errors.
+</Callout>

@@ -1,0 +1,63 @@
+---
+title: CORS
+description: 为浏览器跨域请求生成明确、可缓存的 CORS 响应。
+---
+
+# CORS
+
+`CORS` 根据请求的 `Origin` 写入跨域响应头，并直接处理浏览器 preflight。
+
+## 允许明确的来源
+
+```go
+cors := middleware.CORS(
+	"https://app.example.com",
+	"https://admin.example.com",
+)
+
+handler := cors(mux)
+```
+
+来源按完整的 `scheme://host[:port]` 匹配，比较时不区分大小写。至少要配置一个来源，或提供 `UnsafeAllowOriginFunc`；否则构造函数会 panic。
+
+## 完整配置
+
+```go
+cors := middleware.CORSWithConfig(middleware.CORSConfig{
+	AllowOrigins:     []string{"https://app.example.com"},
+	AllowMethods:     []string{http.MethodGet, http.MethodPost},
+	AllowHeaders:     []string{"Authorization", "Content-Type"},
+	ExposeHeaders:    []string{"X-Request-ID"},
+	AllowCredentials: true,
+	MaxAge:           600,
+	ErrorHandler:     writeAPIError,
+})
+```
+
+- `AllowMethods` 默认包含 GET、HEAD、PUT、PATCH、POST 和 DELETE。它不会从 router 自动推断。
+- `AllowHeaders` 为空时，preflight 会反射 `Access-Control-Request-Headers`。
+- `MaxAge` 为零时不写 header；负值会写 `0`，要求浏览器不要缓存。
+- 单独的 `*` 允许任意来源，但不能与 `AllowCredentials` 同时使用。
+
+## Preflight 与普通请求
+
+只有同时包含 `Origin` 和 `Access-Control-Request-Method` 的 `OPTIONS` 才是 preflight。其他 `OPTIONS` 会继续交给下游。
+
+不允许的普通跨域请求仍会进入下游，但没有 `Access-Control-Allow-Origin`，浏览器不会向脚本暴露响应。不允许的 preflight 则直接返回 `204`，同样不带允许来源。
+
+## 动态来源
+
+```go
+UnsafeAllowOriginFunc: func(
+	r *http.Request, origin string,
+) (string, bool, error) {
+	allowed, err := tenantOrigins.Allows(r.Context(), origin)
+	return origin, allowed, err
+},
+```
+
+`origin` 是不可信输入。返回的字符串会原样写入响应，函数也可能被并发调用；请先做严格语法与租户边界检查。函数错误会以建议状态码 `500` 交给 `ErrorHandler`。
+
+<Callout title="CORS 不是服务端授权">
+  CORS 只约束浏览器是否把响应暴露给脚本。非浏览器客户端仍可发送请求，服务端必须正常执行认证与授权。
+</Callout>

@@ -1,0 +1,97 @@
+---
+title: binding
+sidebarTitle: 概览
+description: 从 net/http 请求中读取路径、查询、Header、表单与请求体。
+icon: braces
+---
+
+# binding
+
+`go-slim.dev/binding` 把 `*http.Request` 中的输入转换为 Go 结构体或具体类型。它直接建立在 `net/http` 之上，不要求特定路由器或 Web 框架。
+
+```sh
+go get go-slim.dev/binding
+```
+
+当前模块声明使用 Go 1.25.5。运行时依赖为标准库和 `go-slim.dev/nego`。
+
+<Callout type="info" title="职责边界">
+  binding 只负责读取和转换请求输入。路由、业务校验、授权、HTTP
+  状态码以及响应格式仍由应用负责。
+</Callout>
+
+## 选择合适的 API
+
+这个包提供三种面向 Handler 的用法，以及一组独立的字符串转换函数。
+
+| 需求 | 使用方式 |
+| --- | --- |
+| 把多个来源绑定到一个输入结构体 | `new(binding.DefaultBinder).Bind` |
+| 只绑定路径、查询、Header 或请求体 | `BindPathValues`、`BindQueryParams`、`BindHeaders`、`BindBody` |
+| 直接取得一两个具体类型的值 | `PathParam`、`QueryParam`、`FormValue` |
+| 连续读取同一来源的多个字段 | `PathValuesBinder`、`QueryParamsBinder`、`FormFieldBinder` |
+| 转换与 HTTP 无关的字符串 | `ParseValue`、`ParseValues` |
+
+大多数 Handler 只需要其中一种方式：字段较多时使用输入结构体；字段很少时直接使用泛型函数；需要连续读取多个值并统一收集错误时再使用 Fluent API。
+
+## 支持的输入来源
+
+| 来源 | 结构体标签或入口 |
+| --- | --- |
+| 路径参数 | `param`、`PathParam` |
+| URL 查询参数 | `query`、`QueryParam`、`QueryParams` |
+| 请求头 | `header`、`BindHeaders` |
+| 表单字段 | `form`、`FormValue`、`FormValues` |
+| JSON | `json`、`BindBody` |
+| XML | `xml`、`BindBody` |
+| Multipart 文件 | `form`、`BindBody` |
+
+## 两个最小示例
+
+字段较多时，定义一个只包含客户端可写字段的输入结构体：
+
+```go
+type updateUserInput struct {
+	ID   uint   `param:"id"`
+	Name string `json:"name"`
+}
+
+var input updateUserInput
+if err := new(binding.DefaultBinder).Bind(r, &input); err != nil {
+	return err
+}
+```
+
+只读取少量参数时，直接取得强类型值：
+
+```go
+id, err := binding.PathParam[uint](r, "id")
+if err != nil {
+	return err
+}
+
+page, err := binding.QueryParamOr(r, "page", 1)
+```
+
+## 需要 Middleware 吗？
+
+通常不需要。标准库路由匹配出的路径参数、查询参数、Header 和请求体都可以直接绑定。
+
+`binding.Middleware` 主要用于缓存一次 `URL.Query()`、配置 multipart 内存阈值，以及支持可枚举的 `binding.SetPathValue`。只有最后一种能力强制要求 Middleware。详见[请求生命周期](/zh-Hans/libraries/binding/advanced/middleware)。
+
+## 安全模型
+
+不要把请求直接绑定到数据库实体或权限模型：
+
+```go
+type updateUserInput struct {
+	DisplayName string `json:"display_name"`
+}
+```
+
+先绑定到专用输入结构体，再做业务校验、权限检查和领域对象映射。类型转换成功只表示输入能由目标 Go 类型表达，并不表示它在业务上有效。
+
+## 继续阅读
+
+- [指南](/zh-Hans/libraries/binding/guide)：快速开始、结构体绑定、强类型取值、请求体与文件。
+- [进阶](/zh-Hans/libraries/binding/advanced)：错误契约、Middleware、缓存、限制与可重复读取。

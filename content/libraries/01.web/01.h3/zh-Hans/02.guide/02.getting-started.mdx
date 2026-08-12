@@ -1,0 +1,133 @@
+---
+title: 入门
+description: 安装 h3 并创建第一个 HTTP 服务。
+---
+
+# 入门
+
+安装模块：
+
+```sh
+go get go-slim.dev/h3
+```
+
+## 创建服务
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"go-slim.dev/h3"
+)
+
+func main() {
+	app := h3.New(h3.Options{Addr: ":8080"})
+
+	app.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("user=" + r.PathValue("id")))
+	})
+
+	// 这个 context 只属于初始化阶段。
+	if err := app.Start(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	shutdown, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+	<-shutdown.Done()
+
+	if err := app.Stop(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+`App.Start` 会先创建 listener，再返回。因此地址非法、权限不足、端口占用这类错误会同步返回。HTTP 服务随后在后台运行，直到 `Stop` 或服务错误结束它。
+
+`Start` 是非阻塞调用。保持进程存活并决定何时调用 `Stop` 是应用的职责。未启用 TLS 时默认地址是 `:http`（80 端口），本地开发和非特权部署应显式设置 `Addr`；配置 `TLSConfig` 后默认使用 `:https`（443 端口）。
+
+<Callout title="启动 context 不是关闭 context">
+  `Start` 成功后再取消传入的 context，不会停止 server。示例把 signal
+  cancellation 与启动 context 分开，并显式调用 `app.Stop()`。
+</Callout>
+
+## 显式添加 router
+
+小应用可以直接使用 `App` 暴露的 route helper。较大的应用建议先配置 router，再通过 options 传入：
+
+```go
+router := h3.NewRouter()
+router.HandleFunc("GET /health", health)
+router.HandleFunc("GET /users/{id}", getUser)
+
+api := h3.NewRouter()
+api.HandleFunc("POST /sessions", createSession)
+router.Mount("/api", api)
+
+app := h3.New(h3.Options{
+	Addr:   ":8080",
+	Router: router,
+})
+```
+
+app 启动时会构建 router。如果不通过 `App`，而是直接服务 router，需要在配置完成后调用 `router.Build()`。
+
+独立 router 在第一次成功 `Build` 前等同于空 `http.ServeMux`，请求会得到 404。后续新增声明也要等下一次成功 build 才可见。
+
+## 读取路径参数
+
+h3 把匹配交给 `http.ServeMux`，所以路径参数直接从 request 读取：
+
+```go
+app.HandleFunc("GET /files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	_, _ = w.Write([]byte(path))
+})
+```
+
+不需要 h3 专属 context。需要请求局部值时，继续使用标准库的 `r.Context()`。
+
+## 返回 JSON 错误
+
+路由未命中可以在 app 边界定制：
+
+```go
+func jsonError(status int, code string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   false,
+			"code": code,
+		})
+	})
+}
+
+app := h3.New(h3.Options{
+	Addr:             ":8080",
+	NotFound:         jsonError(http.StatusNotFound, "NotFound"),
+	MethodNotAllowed: jsonError(http.StatusMethodNotAllowed, "MethodNotAllowed"),
+})
+```
+
+已经匹配到的 handler 仍然负责自己的错误。h3 只替换 routing-layer 的 404 和 405 响应。
+
+自定义 405 handler 会收到 `http.ServeMux` 计算出的 `Allow` header。路径清理和尾斜杠重定向也会保留标准 `ServeMux` 行为，不会被 `NotFound` 替换。
+
+## 上线前检查
+
+- 设置 `ReadHeaderTimeout`；请求 body 大小通常还要在 handler 或 middleware 中按请求限制。
+- 显式安装 panic recovery、request ID、access log 和安全 middleware。
+- 让每个 servlet 的清理过程有明确上限；`App.Stop` 自身没有 deadline 参数。
+- 检查启动和关闭错误；serving failure 还会通过 `OnStopped` 或 `Run` 交付。

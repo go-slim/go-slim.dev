@@ -1,0 +1,56 @@
+---
+title: CSRF
+description: Protect cookie-authenticated state changes with Fetch Metadata and synchronizer tokens.
+---
+
+# CSRF
+
+`CSRF` first uses browser Fetch Metadata to establish request provenance. When that cannot prove safety, it falls back to a synchronizer token made of a cookie plus a separately submitted value.
+
+```go
+handler := middleware.CSRF()(mux)
+```
+
+The default token cookie is `_csrf`, the submitted value comes from `X-CSRF-Token`, the token length is 32, and the cookie lifetime is 86400 seconds.
+
+## Give the token to the client
+
+```go
+func form(w http.ResponseWriter, r *http.Request) {
+	token := middleware.CSRFToken(r)
+	// Put the token in an HTML hidden input or application bootstrap data.
+}
+```
+
+For unsafe methods such as POST, PUT, PATCH, and DELETE, the client sends that value in `X-CSRF-Token`. GET, HEAD, OPTIONS, and TRACE do not require a submitted token.
+
+When Fetch Metadata has already proved the request safe, `CSRFToken` returns the `middleware.CSRFUsingSecFetchSite` marker instead of generating a synchronizer token. Do not persist that marker as a credential.
+
+## Configure cookies and origins
+
+```go
+csrf := middleware.CSRFWithConfig(middleware.CSRFConfig{
+	TrustedOrigins:  []string{"https://admin.example.com"},
+	CookieName:      "_csrf",
+	CookiePath:      "/",
+	CookieSecure:    true,
+	CookieHTTPOnly:  true,
+	CookieSameSite:  http.SameSiteLaxMode,
+	TokenLookup:     "header:X-CSRF-Token",
+	ErrorHandler:    writeAPIError,
+})
+```
+
+`TrustedOrigins` matches complete `scheme://host[:port]` origins. `SameSite=None` automatically forces `CookieSecure=true`.
+
+`TokenLookup` accepts the shared extractor syntax, but it must never read the submitted value from `CookieName` itself: comparing a cookie with itself provides no CSRF protection. Forms may use `form:_csrf_token`; APIs normally suit a header better.
+
+## Rejection semantics
+
+- A missing or unparseable submitted value produces `400 Bad Request`.
+- A present but mismatched token produces `403 Forbidden`; identify it with `errors.Is(err, middleware.ErrCSRFInvalid)`.
+- `same-site` and `cross-site` Fetch Metadata requests are rejected by default. Use `TrustedOrigins` or `AllowSecFetchSiteFunc` only for an explicit trust model.
+
+<Callout title="Designed for cookie-based authentication">
+  The classic CSRF risk exists when browsers attach credentials automatically. If an API accepts only an explicitly set bearer token, establish the threat model before enabling CSRF.
+</Callout>

@@ -1,0 +1,111 @@
+---
+title: h3
+sidebarTitle: Overview
+description: A standard-library-first HTTP application foundation for Go.
+icon: server
+---
+
+# h3
+
+`go-slim.dev/h3` is a small HTTP application foundation built on the Go standard library. It keeps `http.ServeMux` route syntax and matching behavior, then adds declarative route trees, middleware composition, lifecycle management, HTTP/HTTPS startup, and final response metadata.
+
+<Callout title="Designed for the standard library">
+  h3 does not replace `net/http`. Route patterns, handlers, request contexts,
+  response writers, and middleware keep their standard-library semantics.
+</Callout>
+
+## Why h3?
+
+- Use Go 1.22+ `http.ServeMux` patterns without introducing a second handler abstraction.
+- Configure route trees and mounted routers at startup, then publish immutable routing snapshots.
+- Compose standard `func(http.Handler) http.Handler` middleware without changing how existing components integrate.
+- Coordinate HTTP services and background servlets through one explicit lifecycle owner with startup rollback.
+
+## Choose the right level
+
+| Situation | Use |
+| --- | --- |
+| Another package already owns `http.Server` | A standalone `Router`; call `Build`, then serve it as an `http.Handler`. |
+| h3 should own the listener and graceful shutdown | `App` with `Start`/`Stop`, or `Run` when another goroutine can request shutdown. |
+| A module owns routes only | `Router.Mount` or a plain `Component`. |
+| A module owns routes and background resources | A `Component` that also implements `Servlet`. |
+| Another router needs the expanded declarations | `CompileRoutes`, whose handlers already include h3 middleware. |
+
+## Mental model
+
+h3 is not an MVC framework. It is closer to an application shell around `net/http`:
+
+1. Describe routes and mounted routers.
+2. Compose standard middleware.
+3. Build an immutable routing table.
+4. Start HTTP and background lifecycle components together.
+5. Let handlers keep direct ownership of request parsing, validation, rendering, and domain errors.
+
+That design makes the package predictable in mixed codebases. You can introduce h3 into an existing `net/http` service without rewriting handlers, and you can export h3 route declarations to another component with `CompileRoutes` when needed.
+
+## Responsibility boundary
+
+h3 provides the HTTP application shell. Input, output, and business policy remain application decisions:
+
+| h3 provides | The application decides |
+| --- | --- |
+| Route declarations, mount trees, and atomic snapshot publication | DTO design, input decoding, and validation rules |
+| Standard middleware composition and parent/child wrapping | Which authentication, security, rate-limit, and observability policies to install |
+| Listener, HTTP server, and servlet lifecycle orchestration | How databases, queues, workers, and other resources initialize and stop |
+| Routing-layer 404/405 replacement hooks | API error schemas and business-error-to-status mapping |
+| Final response status, size, and commit-state recording | JSON, HTML, files, streaming, and other response representations |
+
+This boundary lets h3 fit into an existing `net/http` service. Handlers continue to use `*http.Request`, `http.ResponseWriter`, `r.Context()`, and any component compatible with standard interfaces.
+
+## What h3 does not hide
+
+h3 deliberately leaves several decisions visible:
+
+| Decision | Why it stays in application code |
+| --- | --- |
+| Request validation | Validation rules are domain contracts, not router behavior. |
+| Response rendering | JSON, HTML, streaming, files, and problem details need different policy. |
+| Business error mapping | Applications decide which errors become 400, 404, 409, or 500. |
+| Context propagation | Standard `context.Context` keeps cancellation and values explicit. |
+| Observability backend | Logs, tracing, metrics, and exporters vary by deployment. |
+
+## Optional integrations
+
+h3 does not depend on the following packages. They are optional go-slim implementations that can be replaced with standard-library or third-party alternatives:
+
+| Need | Optional choice |
+| --- | --- |
+| Decode path, query, header, or body input | [`go-slim.dev/binding`](/libraries/binding) |
+| Match `Content-Type` or select an acceptable response representation | [`go-slim.dev/nego`](/libraries/nego) |
+| Use a catalog of standard `net/http` middleware | [`go-slim.dev/middleware`](/libraries/middleware) |
+| Record business execution | [`go-slim.dev/tracing`](/libraries/tracing) |
+
+These are integration suggestions, not h3 responsibilities or required dependencies.
+
+## Requirements
+
+h3 requires Go 1.25.5 or later. Route patterns use the `http.ServeMux` grammar introduced in Go 1.22.
+
+```sh
+go get go-slim.dev/h3
+```
+
+It has no runtime dependencies outside the Go standard library.
+
+## Important boundaries
+
+- Router declarations are mutable configuration and are not concurrency-safe. Published routing snapshots are safe for concurrent requests.
+- `App.Start` is non-blocking. Its context controls startup only; cancellation after a successful start is not a shutdown signal.
+- Lifecycle calls are sequential control-plane operations. Do not race `Start`, `Stop`, `Register`, or route configuration.
+- `App.Stop` has no timeout argument and waits for HTTP shutdown and every servlet. Each owned resource must provide its own bounded cleanup behavior.
+- h3 converts panics from `Servlet.Start` or `Servlet.Stop` into errors, but it does not recover panics from HTTP handlers. Install recovery middleware when that is part of your service policy.
+
+## Documentation map
+
+| Section | Use it for |
+| --- | --- |
+| [Guide](/libraries/h3/guide) | First server, routing, middleware, and lifecycle basics. |
+| [Advanced](/libraries/h3/advanced) | Component ownership, route compilation, TLS/server options, and response metadata. |
+| [Examples](/libraries/h3/examples) | Copyable application shapes for JSON APIs, components, and access logging. |
+
+[Start with the guide](/libraries/h3/guide).

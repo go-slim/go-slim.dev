@@ -1,0 +1,59 @@
+---
+title: Static
+description: Serve static files, directory indexes, and SPA fallbacks from an OS directory or fs.FS.
+---
+
+# Static
+
+`Static` serves files from a root directory. When a file is not found, it calls the next handler by default.
+
+```go
+files := middleware.Static("public")(http.NotFoundHandler())
+http.Handle("/", files)
+```
+
+The default index is `index.html`; directory browsing and HTML5 fallback are disabled.
+
+## Mount under a URL prefix
+
+For a known prefix, remove it explicitly with the standard library:
+
+```go
+assets := middleware.StaticWithConfig(middleware.StaticConfig{
+	Filesystem: os.DirFS("./public"),
+	Root:       ".",
+})
+
+mux.Handle(
+	"/assets/",
+	http.StripPrefix("/assets", assets(http.NotFoundHandler())),
+)
+```
+
+When `Filesystem` is nil, the middleware uses `os.DirFS(Root)`. With an `fs.FS`, `Root` is relative to that filesystem. The final file must implement `io.ReadSeeker` because content is sent through `http.ServeContent`.
+
+`IgnoreBase` can also remove the first URL segment, but `http.StripPrefix` is clearer for a fixed mount point.
+
+## SPAs and directory browsing
+
+```go
+spa := middleware.StaticWithConfig(middleware.StaticConfig{
+	Root:  "dist",
+	Index: "index.html",
+	HTML5: true,
+})
+```
+
+With `HTML5`, a missing path serves the root index directly rather than calling next, which suits an SPA with client-side routing. With `Browse`, a directory without an index gets a generated listing. Do not enable it for a production directory containing private files.
+
+## Path safety
+
+The safe default does not unescape URL paths and rejects encoded slash/backslash separators (`%2f`, `%5c`). This prevents route ACLs and filesystem lookup from interpreting the same input differently.
+
+Set `EnablePathUnescaping: true` only when encoded filenames are required and access control does not depend on the escaped route shape. The deprecated `DisablePathUnescaping` field is ignored.
+
+Template parsing, filesystem subdirectory, and configuration errors panic during construction. Request-time filesystem, decoding, and rendering errors go to `ErrorHandler`.
+
+<Callout title="The static root is a security boundary">
+  Put only intentionally public build artifacts in that fs.FS. Do not rely on filename conventions or the directory-listing switch to isolate secrets.
+</Callout>

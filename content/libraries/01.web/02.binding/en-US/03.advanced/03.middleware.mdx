@@ -1,0 +1,117 @@
+---
+title: Request lifecycle
+description: Understand Middleware, path values, caches, limits, and repeated reads.
+---
+
+# Request lifecycle
+
+`binding.Middleware` is a request-scoped optimization and configuration layer, not a hard prerequisite for most binding APIs.
+
+## What Middleware does
+
+For every request that is not skipped, it stores three values in a derived context:
+
+- one result from `r.URL.Query()` for later reuse;
+- bookkeeping for enumerable path-value names;
+- the multipart form memory threshold.
+
+It does not read the request body or parse forms eagerly.
+
+```go
+server := &http.Server{
+	Addr:    ":8080",
+	Handler: binding.Middleware(mux),
+}
+```
+
+## Without Middleware
+
+| Operation | Behavior |
+| --- | --- |
+| Query binding | Works, but reads from `URL.Query()` each time |
+| Form and body binding | Works; multipart uses the default 32 MiB memory threshold |
+| Path values matched by the standard library router | Discovered from `Request.Pattern` |
+| `binding.SetPathValue` | Unavailable and panics |
+
+## Add a path value manually
+
+Go can set a path value with `r.SetPathValue`, but it exposes no API for enumerating a newly added name. When a new value must be discoverable by `BindPathValues` or the generic path helpers, use:
+
+```go
+func tenant(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		binding.SetPathValue(r, "tenant", resolveTenant(r))
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+`SetPathValue` must run inside `binding.Middleware`; otherwise it panics with:
+
+```text
+binding: SetPathValue requires Middleware
+```
+
+Calling `r.SetPathValue` directly can still override an existing router parameter because its name is already known through `Request.Pattern`.
+
+`PathValuesBinder` already receives the requested key name from each method call, so it can read a value added directly with `r.SetPathValue` without enumerating it.
+
+## Configure and skip
+
+```go
+handler := binding.MiddlewareWithConfig(binding.MiddlewareConfig{
+	Skipper: func(r *http.Request) bool {
+		return r.URL.Path == "/health"
+	},
+	FormParseMaxMemory: 8 << 20,
+})(mux)
+```
+
+A request selected by `Skipper` is passed unchanged to the next handler. It has no query cache, path-name bookkeeping, or multipart configuration, so it cannot call `binding.SetPathValue`.
+
+A zero `FormParseMaxMemory` selects the 32 MiB default. This value only decides when multipart file data moves from memory to temporary files; it is not a total request-size limit.
+
+## Middleware order
+
+Any middleware calling `binding.SetPathValue` must run after binding initialization:
+
+```go
+handler := recoverMiddleware(
+	binding.Middleware(
+		tenantMiddleware(mux),
+	),
+)
+```
+
+Outer infrastructure middleware can still observe every request. Use `Skipper` for static assets or health checks that do not need binding setup.
+
+## Query caches and request mutation
+
+Middleware parses and caches query values before entering downstream handlers. If downstream code later changes `r.URL.RawQuery`, binding still reads the original cached values. Middleware that rewrites query input should run before binding Middleware, or the cache should be omitted.
+
+## Which reads are repeatable?
+
+| Source | Repeated-read behavior |
+| --- | --- |
+| Path, query, header | Reusable while request state is unchanged |
+| URL-encoded and multipart forms | The standard library caches parsed form state on `http.Request` |
+| JSON and XML | Consume `Request.Body` and normally cannot be read again |
+| `SetPathValue` | Mutates the request and changes later path reads |
+
+Do not call `DefaultBinder.Bind` twice on one request containing a JSON or XML body. Logging, signature verification, or retries that need the body must explicitly buffer and restore `Request.Body` above the handler.
+
+## Concurrency boundary
+
+One request, destination, or `ValueBinder` should belong to one handler flow. binding does not make concurrent mutation of those values safe.
+
+Shared implementation details are safe across independent requests: struct reflection metadata is stored in `sync.Map`, JSON buffers are reused through `sync.Pool`, and buffers larger than 64 KiB are not returned to the pool.
+
+## Deployment checklist
+
+- Limit the total size of untrusted bodies before decoding.
+- Give each field one authoritative source.
+- Bind query values explicitly on write requests.
+- Bind headers explicitly with `BindHeaders`.
+- Bind JSON and XML bodies only once.
+- Configure multipart memory and total upload limits separately.
+- Classify and render binding errors at one HTTP boundary.

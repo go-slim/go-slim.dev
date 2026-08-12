@@ -1,0 +1,33 @@
+title: binding
+description:
+  en-US: Independent input binding for HTTP handlers.
+  zh-Hans: 为 HTTP Handler 提供独立的输入绑定能力。
+icon: icons/braces.svg
+llms:
+  repository: go-slim/binding
+  skillDescription: Binding is a Go package for binding HTTP request data to structs and strongly typed values.
+  files:
+    - llms.txt
+    - llms-full.txt
+abbr:
+  zh-Hans:
+    JSON: "JavaScript Object Notation，常用的结构化数据交换格式。"
+    XML: "Extensible Markup Language，可扩展标记语言。"
+    multipart: "把一个 HTTP body 分成多个带独立头字段部分的编码格式。"
+    Multipart: "把一个 HTTP body 分成多个带独立头字段部分的编码格式。"
+    "Fluent API": "通过连续链式调用逐步配置操作的接口风格。"
+    DTO: "Data Transfer Object，只承载输入或输出数据的传输对象。"
+    "Content-Type": "声明 HTTP 消息正文媒体类型的头字段。"
+    Query: "URL 中问号之后、由键值对组成的查询参数。"
+    query: "URL 中问号之后、由键值对组成的查询参数。"
+    Form: "使用表单编码提交的请求字段集合。"
+    form: "使用表单编码提交的请求字段集合。"
+    MiB: "mebibyte，2^20 字节。"
+    KiB: "kibibyte，2^10 字节。"
+    binding: "把请求中的字符串或正文数据解析并写入目标 Go 值的过程。"
+    Binding: "把请求中的字符串或正文数据解析并写入目标 Go 值的过程。"
+    binder: "负责从请求读取数据并绑定到目标值的组件。"
+    getter: "按名称读取并可选转换单个输入值的取值函数。"
+    UTC: "Coordinated Universal Time，协调世界时。"
+    Unix: "常用于时间戳的 Unix epoch 与类 Unix 平台语义。"
+showInNavigation: true

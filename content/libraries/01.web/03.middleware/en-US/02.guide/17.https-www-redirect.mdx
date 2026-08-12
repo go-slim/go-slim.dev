@@ -1,0 +1,34 @@
+---
+title: HTTPSWWWRedirect
+description: Canonicalize requests onto HTTPS and a www host.
+---
+
+# HTTPSWWWRedirect
+
+`HTTPSWWWRedirect` normalizes both scheme and host: the target is always HTTPS and its host always has a `www.` prefix.
+
+```go
+handler := middleware.HTTPSWWWRedirect()(mux)
+```
+
+| Input | Result |
+| --- | --- |
+| `http://example.com/docs` | `https://www.example.com/docs` |
+| `https://example.com/docs` | `https://www.example.com/docs` |
+| `http://www.example.com/docs` | `https://www.example.com/docs` |
+
+A request already satisfying both conditions continues downstream. The complete `RequestURI` is preserved, including its query string.
+
+## Customize the redirect
+
+```go
+redirect := middleware.HTTPSWWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code: http.StatusPermanentRedirect,
+	},
+)
+```
+
+The default is 301; a configured value must be between 300 and 308. For non-GET requests, choose 307 or 308 when clients must preserve the method and body.
+
+Scheme detection may read proxy forwarding headers. Trust only values sanitized and rebuilt by the edge. If the canonical host does not use `www.`, use `HTTPSNonWWWRedirect` instead.

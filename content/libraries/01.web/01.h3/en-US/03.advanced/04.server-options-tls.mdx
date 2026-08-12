@@ -1,0 +1,97 @@
+---
+title: Server options and TLS
+description: Configure h3's HTTP server, TLS startup, timeouts, and stopped callback.
+---
+
+# Server options and TLS
+
+`h3.Options` maps the `http.Server` settings that h3 owns during app startup. Configure server behavior before calling `Start`.
+
+`New` copies the first `Options` value passed to it and ignores additional values. Prefer exactly one options literal. If `Router` is nil, h3 creates an empty router. With an empty `Addr`, plain HTTP uses `:http`, while a configured `TLSConfig` selects `:https`.
+
+```go
+app := h3.New(h3.Options{
+	Router:            router,
+	Addr:              ":8080",
+	ReadHeaderTimeout: 5 * time.Second,
+	IdleTimeout:       60 * time.Second,
+	OnStopped: func(manual bool, err error) {
+		if !manual {
+			log.Printf("HTTP server exited: %v", err)
+		}
+	},
+})
+```
+
+## Important options
+
+| Option | Why it matters |
+| --- | --- |
+| `ReadHeaderTimeout` | Limits slowloris-style header reads. |
+| `ReadTimeout` / `WriteTimeout` | Bounds request and response I/O. |
+| `IdleTimeout` | Controls keep-alive idle connections. |
+| `MaxHeaderBytes` | Limits parsed request-line and header bytes, not the request body. |
+| `ErrorLog` | Receives unexpected serving errors. |
+| `ConnState` | Observes connection lifecycle. |
+| `PassOptionsStar` | Passes `OPTIONS *` to the application instead of letting `net/http` answer directly. |
+| `TLSNextProto` | Installs custom ALPN protocol handlers; a non-nil map changes automatic HTTP/2 behavior. |
+| `Protocols` | Selects accepted HTTP protocols, including unencrypted HTTP/2 when configured. |
+| `OnStopped` | Runs after HTTP and servlets stop. |
+
+`PassOptionsStar` affects only the special `OPTIONS *` request, not normal path-based `OPTIONS /resource` routes.
+
+`HTTP2` is exposed for forward compatibility but currently has no effect, matching the limitation documented in the source. Do not rely on it to tune HTTP/2 today.
+
+Server timeouts are connection and I/O policy, not a complete application deadline strategy. `MaxHeaderBytes` does not limit bodies, and `App.Stop` does not derive a deadline from these values. Apply per-request body limits and operation deadlines where the application understands the workload.
+
+## TLS
+
+A non-nil `TLSConfig` makes h3 serve HTTPS with `http.Server.ServeTLS`. The config must provide a certificate through `Certificates`, `GetCertificate`, or `GetConfigForClient`.
+
+```go
+certificate, err := tls.LoadX509KeyPair("server.crt", "server.key")
+if err != nil {
+	return err
+}
+
+app := h3.New(h3.Options{
+	Addr: ":8443",
+	TLSConfig: &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	},
+})
+```
+
+If certificate configuration is invalid, `Start` returns before the listener is created.
+
+Without an explicit `Addr`, a TLS listener defaults to `:https` (port 443); an explicit address always wins, so `:8443` remains available. Plain HTTP still defaults to `:http` (port 80).
+
+The startup check only verifies that one certificate source is configured. A dynamic `GetCertificate` or `GetConfigForClient` callback can still fail for a specific handshake. `ServeTLS` clones the TLS config; if runtime code must call methods such as `SetSessionTicketKeys`, own a TLS listener and `http.Server.Serve` outside h3 instead.
+
+## Stopped callback
+
+`OnStopped(manual, err)` is captured for each successful run. `manual` is true when cleanup was initiated by `App.Stop` and false when serving exited first. `err` joins serving, HTTP shutdown, and servlet stop errors.
+
+Startup failures do not invoke the callback. `Stop` sends its result before invoking `OnStopped`, so it does not wait for a slow callback. Use `Run` when the blocking caller must wait for both cleanup and the callback.
+
+## Run
+
+For blocking entry points, use `h3.Run`:
+
+```go
+if err := h3.Run(context.Background(), app); err != nil {
+	log.Fatal(err)
+}
+```
+
+`Run` combines `Start` with waiting for app completion. The context still controls startup; cancelling it after startup does not automatically stop the running app.
+
+Consequently, `Run(context.Background(), app)` blocks until another owner calls `app.Stop()` or the HTTP server exits. For signal-driven programs, the explicit `Start` → wait for signal → `Stop` flow in [Getting started](/libraries/h3/guide/getting-started) is usually clearer.
+
+## Deployment notes
+
+- Behind a TLS-terminating proxy, leave `TLSConfig` nil and configure trusted forwarded-header handling explicitly in middleware.
+- Set `ReadHeaderTimeout` for internet-facing listeners. Choose `ReadTimeout` and `WriteTimeout` carefully for uploads, downloads, SSE, and streaming.
+- `Shutdown` does not close hijacked connections. Track WebSocket or raw TCP upgrades under an owned component.
+- Keep `OnStopped` for notification, not resource cleanup; servlet `Stop` is the cleanup boundary.

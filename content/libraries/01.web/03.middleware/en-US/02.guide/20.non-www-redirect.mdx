@@ -1,0 +1,29 @@
+---
+title: NonWWWRedirect
+description: Remove the www host prefix while retaining the current request scheme.
+---
+
+# NonWWWRedirect
+
+`NonWWWRedirect` redirects when the host starts with `www.`, preserving the current scheme, path, and query string.
+
+```go
+handler := middleware.NonWWWRedirect()(mux)
+```
+
+For example, `https://www.example.com/docs?q=go` becomes `https://example.com/docs?q=go`. An existing non-www host continues downstream.
+
+## Configuration
+
+```go
+redirect := middleware.NonWWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+The default status is 301, and the valid range is 300 through 308. This middleware does not change the scheme; use `HTTPSNonWWWRedirect` to enforce HTTPS as well.
+
+Confirm caching and client behavior before choosing a permanent status. Prefer 307 or 308 when a non-GET request must preserve its method and body.

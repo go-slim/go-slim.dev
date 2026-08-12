@@ -1,0 +1,119 @@
+---
+title: Middleware
+description: Compose standard net/http middleware across routers and mounted route trees.
+---
+
+# Middleware
+
+h3 middleware uses the standard shape:
+
+```go
+func(http.Handler) http.Handler
+```
+
+Earlier middleware is outermost, and parent router middleware wraps child router middleware.
+
+```go
+func requestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("started method=%s path=%s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+		log.Printf("finished method=%s path=%s", r.Method, r.URL.Path)
+	})
+}
+
+router.Use(requestLog)
+```
+
+## Compilation
+
+`Use` records middleware. `Build` and `CompileRoutes` construct a fixed handler chain for every final route, so middleware factories are not called during requests.
+
+A factory is called once per compiled final route, not once per router. Rebuilding calls factories again and produces new chains, while requests already using the previous snapshot keep its old captured values.
+
+This matters for state:
+
+- Request-local state belongs inside `ServeHTTP`.
+- Captured shared state must be synchronized by the middleware.
+- A nil middleware panics in `Use`.
+- A middleware factory that returns nil panics during compilation.
+- Resources that require shutdown should not be created anonymously inside a middleware factory; put them under a servlet or another explicit owner.
+
+## Mounted routers
+
+Mounted routers inherit wrapping order from their parents:
+
+```text
+root middleware
+└── api middleware
+    └── final handler
+```
+
+This lets you put cross-cutting concerns such as panic recovery, request IDs, and tracing at the root, while keeping API-specific authentication or rate limits on mounted routers.
+
+h3 does not install panic recovery itself. A handler panic follows normal `net/http` behavior unless an outer middleware recovers it. Lifecycle panics are a separate boundary: h3 converts panics from servlet `Start` and `Stop` into errors so cleanup can continue.
+
+## CompileRoutes
+
+`CompileRoutes` returns `[]h3.Route` with mount prefixes expanded and middleware already composed. Use it when another facility needs final route declarations compatible with `http.ServeMux`.
+
+Most applications should call `Build` and serve the router or app directly.
+
+Custom `NotFound` and `MethodNotAllowed` handlers live at the `App` boundary and are not part of compiled routes. If they need the same CORS, tracing, or logging policy, wrap those handlers explicitly.
+
+## Ordering example
+
+Use outer middleware for behavior that must see every request and response:
+
+```go
+router.Use(recoverPanic)
+router.Use(assignRequestID)
+router.Use(accessLog)
+router.Use(limitBody)
+```
+
+The effective chain is:
+
+```text
+recoverPanic(assignRequestID(accessLog(limitBody(handler))))
+```
+
+If `limitBody` rejects a request before calling its next handler, `accessLog`, `assignRequestID`, and `recoverPanic` can still observe the result because they are outside it.
+
+## Captured state
+
+Middleware factories are called during route compilation, not per request. If a middleware captures a map, counter, client, cache, or buffer, that value is shared by concurrent requests:
+
+```go
+func countRequests(next http.Handler) http.Handler {
+	var total atomic.Int64
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		total.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+State that is not concurrency-safe must be protected or moved into request-local scope.
+
+The counter above belongs to one compiled route chain. For one counter shared across all routes, allocate it outside the factory and capture the shared pointer deliberately:
+
+```go
+var total atomic.Int64
+
+func countAll(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		total.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+## Middleware checklist
+
+- Register outer policies first: recovery, request identity, tracing, then access logging.
+- Put authentication and authorization before handlers that read protected data.
+- If a middleware short-circuits, it owns the response status, headers, and body for that path.
+- Keep request-scoped values on `r.Context()` and use collision-resistant private key types.
+- Never mutate shared maps or buffers without synchronization.

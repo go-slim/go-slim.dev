@@ -1,0 +1,35 @@
+---
+title: HTTPSNonWWWRedirect
+description: Canonicalize requests onto HTTPS and remove the www host prefix.
+---
+
+# HTTPSNonWWWRedirect
+
+`HTTPSNonWWWRedirect` normalizes both scheme and host: the target is always HTTPS and an initial `www.` is removed.
+
+```go
+handler := middleware.HTTPSNonWWWRedirect()(mux)
+```
+
+| Input | Result |
+| --- | --- |
+| `http://www.example.com/docs` | `https://example.com/docs` |
+| `https://www.example.com/docs` | `https://example.com/docs` |
+| `http://example.com/docs` | `https://example.com/docs` |
+
+An existing HTTPS non-www request continues downstream. Path and query string remain unchanged.
+
+## Customize the redirect
+
+```go
+redirect := middleware.HTTPSNonWWWRedirectWithConfig(
+	middleware.RedirectConfig{
+		Code:    http.StatusPermanentRedirect,
+		Skipper: skipInternalHealth,
+	},
+)
+```
+
+The default is 301; the valid range is 300 through 308. Scheme may come from proxy forwarding headers, so establish and enforce a trusted-proxy boundary first.
+
+To remove `www.` while retaining the current scheme, use `NonWWWRedirect`.

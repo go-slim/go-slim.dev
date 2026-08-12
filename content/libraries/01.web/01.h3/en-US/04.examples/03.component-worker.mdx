@@ -1,0 +1,117 @@
+---
+title: Component worker
+description: Mount a component and manage its worker lifecycle with the app.
+---
+
+# Component worker
+
+Use a component when routes and background work belong to the same module.
+
+<Callout title="Each run needs independent lifecycle state">
+  The example does not use a permanent `sync.Once`: that prevents a double
+  close in the first run but cannot close the new channel created after a
+  restart. Each run gets its own channel, and `Stop` waits for the worker.
+</Callout>
+
+```go
+package worker
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"sync"
+	"time"
+
+	"go-slim.dev/h3"
+)
+
+type workerComponent struct {
+	h3.Component
+	lifecycle sync.Mutex
+	done      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func newWorkerComponent() *workerComponent {
+	c := &workerComponent{
+		Component: h3.NewComponent("/workers"),
+	}
+	c.Router().HandleFunc("GET /status", c.status)
+	return c
+}
+
+func (c *workerComponent) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.done != nil {
+		return errors.New("worker is already started")
+	}
+
+	done := make(chan struct{})
+	c.done = done
+	c.wg.Add(1)
+	// The Start context controls startup checks and rollback only.
+	// Runtime shutdown uses the channel owned by this run.
+	go func() {
+		defer c.wg.Done()
+		c.loop(done)
+	}()
+	return nil
+}
+
+func (c *workerComponent) Stop() error {
+	c.lifecycle.Lock()
+	defer c.lifecycle.Unlock()
+	if c.done == nil {
+		return nil
+	}
+
+	close(c.done)
+	c.wg.Wait()
+	c.done = nil
+	return nil
+}
+
+func (c *workerComponent) status(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte("running"))
+}
+
+func (c *workerComponent) loop(done <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			// poll or process background work
+		}
+	}
+}
+```
+
+Register the component while the app is stopped:
+
+```go
+app := h3.New(h3.Options{Addr: ":8080"})
+app.Register(newWorkerComponent())
+```
+
+The route is mounted at `/workers/status`, and the worker starts/stops with the app.
+
+The `Start` context is intentionally not passed to `loop`. App shutdown calls `Stop`, and `Stop` closes the channel for that specific run. The mutex protects lifecycle state, repeated `Stop` sees nil, and `WaitGroup` ensures no worker survives after cleanup returns.
+
+A package-level or permanent `sync.Once` would make only the first run safe. h3 permits the same app to start again after `Stop`; on the second run that once could no longer close the new channel. Per-run state avoids both double-close panics and restart leaks.
+
+## Ownership rules
+
+- Finish context-aware dependency checks before launching the goroutine.
+- If `Start` returns an error after acquiring a resource, release that resource before returning; h3 only calls rollback `Stop` for servlets whose `Start` completed successfully.
+- `Stop` must signal, wait, and release every resource the component owns.
+- Keep lifecycle calls sequential. The mutex makes accidental repeated cleanup safe, but it is not permission to race app `Start` and `Stop`.

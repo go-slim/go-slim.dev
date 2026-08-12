@@ -1,0 +1,119 @@
+---
+title: 中间件
+description: 在 router 和 mount 树中组合标准 net/http 中间件。
+---
+
+# 中间件
+
+h3 中间件使用标准形态：
+
+```go
+func(http.Handler) http.Handler
+```
+
+先注册的中间件在最外层，父 router 的中间件包裹子 router 的中间件。
+
+```go
+func requestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("started method=%s path=%s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+		log.Printf("finished method=%s path=%s", r.Method, r.URL.Path)
+	})
+}
+
+router.Use(requestLog)
+```
+
+## 编译
+
+`Use` 只记录中间件。`Build` 和 `CompileRoutes` 会为每条最终 route 构建固定 handler chain，因此中间件工厂不会在请求期间被调用。
+
+Factory 是“每条最终编译 route 调用一次”，不是“每个 router 调用一次”。重新 build 会再次调用 factories 并产生新 chains；已经使用旧 snapshot 的请求仍持有旧的 captured values。
+
+这对状态管理很重要：
+
+- 请求局部状态放在 `ServeHTTP` 内部。
+- 被闭包捕获并跨请求共享的状态必须自行同步。
+- nil middleware 会在 `Use` 时 panic。
+- middleware 工厂返回 nil handler 会在编译阶段 panic。
+- 需要 shutdown 的资源不应匿名创建在 middleware factory 中；应交给 servlet 或其他显式 owner 管理。
+
+## 挂载 router
+
+挂载 router 的包裹顺序来自父级：
+
+```text
+root middleware
+└── api middleware
+    └── final handler
+```
+
+这适合把 panic recovery、request id、tracing 放在根部，把认证、限流这类 API 专属能力放在子 router。
+
+h3 不会自动安装 panic recovery。除非外层 middleware 主动 recover，否则 handler panic 保持普通 `net/http` 行为。Lifecycle panic 是另一条边界：h3 会把 servlet `Start`、`Stop` 的 panic 转为 error，让其余清理继续执行。
+
+## CompileRoutes
+
+`CompileRoutes` 返回 `[]h3.Route`，其中 mount prefix 已经展开，中间件也已经组合好。只有当其他设施需要兼容 `http.ServeMux` 的最终 route 声明时才需要它。
+
+多数应用直接调用 `Build` 并服务 router 或 app 即可。
+
+自定义 `NotFound` 和 `MethodNotAllowed` 位于 `App` 边界，不属于 compiled routes。如果它们也需要相同的 CORS、tracing 或 logging policy，应显式包裹这些 handlers。
+
+## 顺序示例
+
+必须观察所有请求和响应的行为应放在外层：
+
+```go
+router.Use(recoverPanic)
+router.Use(assignRequestID)
+router.Use(accessLog)
+router.Use(limitBody)
+```
+
+有效 chain 是：
+
+```text
+recoverPanic(assignRequestID(accessLog(limitBody(handler))))
+```
+
+如果 `limitBody` 在调用 next 前拒绝请求，外层的 `accessLog`、`assignRequestID`、`recoverPanic` 仍然能观察到结果。
+
+## 捕获状态
+
+middleware factory 在 route 编译期间调用，不是每个请求调用。如果 middleware 捕获 map、counter、client、cache 或 buffer，这些值会被并发请求共享：
+
+```go
+func countRequests(next http.Handler) http.Handler {
+	var total atomic.Int64
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		total.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+非并发安全状态必须受保护，或移动到 request-local scope。
+
+上面的 counter 属于一条 compiled route chain。需要所有 routes 共享一个 counter 时，应把它分配在 factory 外部，并有意识地捕获共享 pointer：
+
+```go
+var total atomic.Int64
+
+func countAll(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		total.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+## Middleware 检查表
+
+- 先注册外层 policy：recovery、request identity、tracing，再到 access logging。
+- authentication 和 authorization 应位于读取受保护数据的 handler 之前。
+- middleware 如果 short-circuit，就要负责该路径的 response status、headers 和 body。
+- request-scoped values 放在 `r.Context()`，key 使用不冲突的私有类型。
+- 不要在缺少同步时修改共享 map 或 buffer。

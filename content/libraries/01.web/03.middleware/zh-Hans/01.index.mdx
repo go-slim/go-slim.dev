@@ -1,0 +1,79 @@
+---
+title: middleware
+sidebarTitle: 概览
+description: 建立在 net/http 之上的专用 HTTP 中间件集合。
+icon: route
+---
+
+# middleware
+
+`go-slim.dev/middleware` 提供一组遵循标准库约定的 HTTP middleware。每个构造函数都返回：
+
+```go
+func(http.Handler) http.Handler
+```
+
+因此它可以包装 `http.ServeMux`、h3 或任何兼容 router，不要求框架专属的 context、handler 签名或应用生命周期。
+
+## 安装
+
+```sh
+go get go-slim.dev/middleware
+```
+
+模块要求 Go 1.25.5 或更高版本。
+
+## 最小示例
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+})
+
+handler := middleware.Recover()(
+	middleware.RequestID()(
+		middleware.RequestLogger()(mux),
+	),
+)
+
+log.Fatal(http.ListenAndServe(":8080", handler))
+```
+
+外层 middleware 最先收到请求，最后看到响应结果。上例的请求顺序是 `Recover → RequestID → RequestLogger → mux`，响应则沿相反方向返回。
+
+## 按名称查找
+
+| Middleware | 用途 |
+| --- | --- |
+| [`BasicAuth`](/zh-Hans/libraries/middleware/guide/basic-auth) | HTTP Basic 认证 |
+| [`BodyDump`](/zh-Hans/libraries/middleware/guide/body-dump) | 捕获请求和响应 body |
+| [`BodyLimit`](/zh-Hans/libraries/middleware/guide/body-limit) | 限制请求 body 大小 |
+| [`ContextTimeout`](/zh-Hans/libraries/middleware/guide/context-timeout) | 限制 handler 执行时间 |
+| [`CORS`](/zh-Hans/libraries/middleware/guide/cors) | 处理跨域请求 |
+| [`CSRF`](/zh-Hans/libraries/middleware/guide/csrf) | 防御跨站请求伪造 |
+| [`Decompress`](/zh-Hans/libraries/middleware/guide/decompress) | 解压 gzip 请求 body |
+| [`Gzip`](/zh-Hans/libraries/middleware/guide/gzip) | 压缩响应 body |
+| [`KeyAuth`](/zh-Hans/libraries/middleware/guide/key-auth) | 从 Header、Query 等位置读取 API key |
+| [`MethodOverride`](/zh-Hans/libraries/middleware/guide/method-override) | 覆盖 POST 请求的方法 |
+| [`Proxy`](/zh-Hans/libraries/middleware/guide/proxy) | 反向代理与负载均衡 |
+| [`RateLimiter`](/zh-Hans/libraries/middleware/guide/rate-limiter) | 按身份限制请求速率 |
+| [`Recover`](/zh-Hans/libraries/middleware/guide/recover) | 捕获 handler panic |
+| [`HTTPSRedirect`](/zh-Hans/libraries/middleware/guide/https-redirect) | 强制使用 HTTPS |
+| [`HTTPSWWWRedirect`](/zh-Hans/libraries/middleware/guide/https-www-redirect) | 统一为 HTTPS + www host |
+| [`HTTPSNonWWWRedirect`](/zh-Hans/libraries/middleware/guide/https-non-www-redirect) | 统一为 HTTPS + non-www host |
+| [`WWWRedirect`](/zh-Hans/libraries/middleware/guide/www-redirect) | 添加 www host 前缀 |
+| [`NonWWWRedirect`](/zh-Hans/libraries/middleware/guide/non-www-redirect) | 移除 www host 前缀 |
+| [`RequestID`](/zh-Hans/libraries/middleware/guide/request-id) | 传播或生成请求 ID |
+| [`RequestLogger`](/zh-Hans/libraries/middleware/guide/request-logger) | 记录结构化请求日志 |
+| [`Rewrite`](/zh-Hans/libraries/middleware/guide/rewrite) | 在服务端重写请求 URL |
+| [`Secure`](/zh-Hans/libraries/middleware/guide/secure) | 写入浏览器安全响应头 |
+| [`Static`](/zh-Hans/libraries/middleware/guide/static) | 提供静态文件服务 |
+| [`AddTrailingSlash`](/zh-Hans/libraries/middleware/guide/add-trailing-slash) | 添加路径末尾斜杠 |
+| [`RemoveTrailingSlash`](/zh-Hans/libraries/middleware/guide/remove-trailing-slash) | 移除路径末尾斜杠 |
+
+第一次接入前，请先阅读[使用前须知](/zh-Hans/libraries/middleware/guide/before-you-begin)。那里集中说明组合顺序、错误响应、`Skipper`、并发安全和 `ResponseWriter` 能力。
+
+<Callout title="职责边界">
+  Middleware 适合处理跨请求的 HTTP 策略。路由归属、领域逻辑、响应结构与应用启动仍由调用方负责。
+</Callout>

@@ -1,0 +1,70 @@
+---
+title: KeyAuth
+description: 从 Header、Query、路径、表单或 Cookie 提取并验证 API key。
+---
+
+# KeyAuth
+
+`KeyAuth` 默认从 `Authorization: Bearer <key>` 读取 API key。验证成功后调用下游；key 缺失或无效时返回 `401 Unauthorized`。
+
+## 快速开始
+
+```go
+auth := middleware.KeyAuth(func(
+	r *http.Request,
+	key string,
+	source middleware.ExtractorSource,
+) (bool, error) {
+	expected := []byte(os.Getenv("API_KEY"))
+	return subtle.ConstantTimeCompare([]byte(key), expected) == 1, nil
+})
+
+handler := auth(mux)
+```
+
+Validator 是必需项，并可能并发执行。比较 secret 时使用常量时间算法。
+
+## 选择 key 来源
+
+`KeyLookup` 使用 `source:name[:prefix]` 语法，多个来源以逗号分隔：
+
+```go
+auth := middleware.KeyAuthWithConfig(middleware.KeyAuthConfig{
+	KeyLookup: "header:Authorization:Bearer ,header:X-API-Key",
+	AllowedCheckLimit: 2,
+	Validator: validateAPIKey,
+	ErrorHandler: writeAPIError,
+})
+```
+
+| 来源 | 示例 |
+| --- | --- |
+| Header | `header:Authorization:Bearer ` |
+| Query | `query:api_key` |
+| 路径值 | `param:key` |
+| 表单 | `form:api_key` |
+| Cookie | `cookie:api_key` |
+
+`AllowedCheckLimit` 默认为 `1`，限制每个 extractor 最多检查的值数。middleware 按声明顺序尝试所有来源，遇到第一个有效 key 后停止。Validator 的 `source` 参数可用于区分迁移期间的新旧凭证入口。
+
+需要在自定义组件中复用同一套 lookup 语法时，可以调用：
+
+```go
+extractors, err := middleware.CreateExtractors(
+	"header:X-API-Key,query:api_key",
+	1,
+)
+```
+
+返回的 `ValuesExtractor` 同时给出候选值与 `ExtractorSource`。`KeyAuthWithConfig` 已经负责构造和执行这些 extractor，普通认证场景无需直接调用。
+
+## 错误分类
+
+- 未提取到 key：`401`，错误链包含 `ErrKeyMissing`。
+- 提取到 key 但 validator 返回 `false`：`401`，错误链包含 `ErrInvalidKey`。
+- validator 返回 error：按 `500 Internal Server Error` 处理，因为这通常表示存储或依赖失败。
+- 无效的 `KeyLookup` 在构造阶段 panic。
+
+<Callout title="优先使用 Header">
+  Query string 容易进入访问日志、浏览器历史和 Referer。除非协议已有明确约束，API key 应放在 Authorization 或专用 Header 中。
+</Callout>

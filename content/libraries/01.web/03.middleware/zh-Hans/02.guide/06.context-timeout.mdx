@@ -1,0 +1,46 @@
+---
+title: ContextTimeout
+description: 为普通 HTTP handler 设置执行期限，并在超时时取消请求 context。
+---
+
+# ContextTimeout
+
+`ContextTimeout` 基于 `http.TimeoutHandler` 限制下游执行时间。期限到达后，请求 context 被取消，客户端收到 `503 Service Unavailable`。
+
+```go
+handler := middleware.ContextTimeout(3 * time.Second)(mux)
+```
+
+`Timeout` 必须大于零，否则构造时 panic。
+
+## 自定义响应正文
+
+```go
+timeout := middleware.ContextTimeoutWithConfig(
+	middleware.ContextTimeoutConfig{
+		Timeout: 3 * time.Second,
+		Message: "operation timed out",
+		Skipper: func(r *http.Request) bool {
+			return strings.HasPrefix(r.URL.Path, "/events/")
+		},
+	},
+)
+```
+
+`Message` 默认为 `Service Unavailable`。这个 middleware 没有 `ErrorHandler`：超时响应由标准库 timeout handler 直接生成。
+
+## 取消必须被下游配合
+
+超时不会强制终止 goroutine。数据库、RPC 和计算逻辑需要观察 `r.Context().Done()`，并把 request context 传给支持取消的 API：
+
+```go
+rows, err := db.QueryContext(r.Context(), query)
+```
+
+## 不用于流式协议
+
+`http.TimeoutHandler` 会缓冲响应，因此不支持 `Hijacker`，也不适合 WebSocket、SSE、长轮询或大文件持续流。用 `Skipper` 排除这些路由，并在对应协议层设置自己的 deadline 与取消策略。
+
+<Callout title="区分应用期限与传输期限">
+  ContextTimeout 约束 handler 总执行时间；Server 的 ReadHeaderTimeout、ReadTimeout、WriteTimeout 与 IdleTimeout 仍需单独配置。
+</Callout>

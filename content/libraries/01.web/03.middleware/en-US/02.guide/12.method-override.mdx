@@ -1,0 +1,50 @@
+---
+title: MethodOverride
+description: Let constrained clients express another HTTP method through POST.
+---
+
+# MethodOverride
+
+`MethodOverride` applies only to an original `POST` request. By default it reads `X-HTTP-Method-Override` and changes `Request.Method` before routing when the header has a value.
+
+```go
+handler := middleware.MethodOverride()(mux)
+```
+
+For example:
+
+```http
+POST /documents/42 HTTP/1.1
+X-HTTP-Method-Override: DELETE
+```
+
+The router treats this as `DELETE /documents/42`. Non-POST requests are never overridden.
+
+## Choose the source
+
+```go
+fromForm := middleware.MethodOverrideWithConfig(
+	middleware.MethodOverrideConfig{
+		Getter:  middleware.MethodFromForm("_method"),
+		Skipper: skipAPI,
+	},
+)
+```
+
+Built-in getters are:
+
+```go
+middleware.MethodFromHeader("X-HTTP-Method-Override")
+middleware.MethodFromQuery("_method")
+middleware.MethodFromForm("_method")
+```
+
+A custom `Getter` must return the exact method expected by the standard library, such as `http.MethodDelete`. The middleware does not trim whitespace, normalize case, or validate the result. A form getter parses the form before routing; downstream code should reuse `Form` / `PostForm` and not assume the raw body remains unread.
+
+## Security boundary
+
+The effective method determines the real operation, so authentication, authorization, CSRF, and audit policy must run against that method. Place `MethodOverride` outside those checks, but enable it only for routes that genuinely need HTML form or constrained-client compatibility.
+
+<Callout title="Do not use it as a general tunnel">
+  If clients can already send DELETE, PATCH, and other methods, no override is needed. An extra entry point expands the routing and security test surface.
+</Callout>

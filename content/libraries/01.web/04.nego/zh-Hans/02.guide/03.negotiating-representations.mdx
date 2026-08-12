@@ -1,0 +1,89 @@
+---
+title: 协商响应表示
+description: 按正确 HTTP 偏好规则选择媒体类型、字符集、编码和语言。
+---
+
+# 协商响应表示
+
+创建一个可复用 negotiator，再按服务端偏好顺序传入 offer：
+
+```go
+var negotiator = nego.New(128)
+
+mediaType, err := negotiator.Accepts(
+	r.Header.Get(nego.HeaderAccept),
+	nego.MIMEApplicationJSON,
+	nego.MIMEApplicationXML,
+)
+```
+
+`Accepts` 返回原始 offer string。没有可接受值时返回 `"", nil`，非法服务端 offer 返回 error。
+
+## Quality 与 specificity
+
+对于每个服务端 offer，匹配它的最具体 client range 决定有效 quality。这个规则让显式排除生效：
+
+```http
+Accept: text/*;q=1, text/plain;q=0
+```
+
+虽然宽泛的 `text/*` quality 为 1，`text/plain` 仍会被排除。包随后选择有效 quality 最高的 offer；quality 相同时按服务端 offer 顺序决定。
+
+其他规则：
+
+- 缺失或只有空白的 `Accept` 等价于 `*/*`。
+- `q=0` 排除一种表示。
+- Type、subtype 和匹配的 media parameter 会提高 specificity。
+- 非法 client list member 单独丢弃，其他成员继续参与。
+- 服务端 offer 不能携带保留的 `q` 参数。
+
+## 用 Type 返回 alias
+
+`Type` 读取 request field，展开与 `TypeIs` 相同的 alias，但返回调用方提供的 alias：
+
+```go
+kind, err := negotiator.Type(r, "json", "xml", "text")
+switch kind {
+case "json":
+	w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationJSONCharsetUTF8)
+case "xml":
+	w.Header().Set(nego.HeaderContentType, nego.MIMEApplicationXMLCharsetUTF8)
+case "text":
+	w.Header().Set(nego.HeaderContentType, nego.MIMETextPlainCharsetUTF8)
+}
+```
+
+Candidate 顺序表示服务端偏好，不是覆盖客户端排除规则的 fallback。
+
+## Charset
+
+```go
+charset := negotiator.Charset(r, "utf-8", "iso-8859-1")
+```
+
+不区分大小写的精确匹配优先于 wildcard。缺失 `Accept-Charset` 会选择第一个 offer；field 存在但为空则一个都不接受。
+
+## Content coding
+
+```go
+encoding := negotiator.Encoding(r, "br", "gzip", "identity")
+```
+
+`Accept-Encoding` 对 identity 有特殊规则：
+
+- 缺失时选择第一个 offer；
+- field 存在但为空时只接受 `identity`；
+- `identity` 默认 quality 为 1，除非显式赋值或排除；
+- `identity;q=0`，或没有更具体 identity 时的 `*;q=0`，可以排除它。
+
+使用 `identity` 时不要设置 `Content-Encoding`。
+
+## Language
+
+```go
+language := negotiator.Language(r, "zh-Hans", "en-US")
+```
+
+Language selection 使用 RFC 4647 Basic Filtering。`en` 可以匹配 `en` 和 `en-US`，而 `en-US` 不会匹配更宽的服务端 offer `en`。同一个 offer 上，更具体 client range 覆盖宽泛 range；quality 相同则按服务端顺序决定。
+
+缺失 `Accept-Language` 选择第一个 offer，field 存在但为空则一个都不接受。最终语言仍是应用决定：包不会自动 rewrite URL、加载翻译或设置 `Content-Language`。

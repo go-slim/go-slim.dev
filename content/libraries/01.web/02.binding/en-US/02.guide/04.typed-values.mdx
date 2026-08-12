@@ -1,0 +1,146 @@
+---
+title: Typed values
+description: Choose generic functions or the fluent API for concrete request values.
+---
+
+# Typed values
+
+For a small number of fields, there is no need to define a struct first. binding provides generic functions that return values and a fluent API that writes several values from one source into variables.
+
+## Generic functions
+
+```go
+id, err := binding.PathParam[uint](r, "id")
+page, err := binding.QueryParamOr(r, "page", 1)
+tags, err := binding.QueryParams[string](r, "tag")
+priority, err := binding.FormValueOr(r, "priority", 0)
+```
+
+| Source | Scalar | Repeated values |
+| --- | --- | --- |
+| Path | `PathParam`, `PathParamOr` | — |
+| Query | `QueryParam`, `QueryParamOr` | `QueryParams`, `QueryParamsOr` |
+| Form | `FormValue`, `FormValueOr` | `FormValues`, `FormValuesOr` |
+
+## Missing, empty, and invalid input
+
+These input states intentionally remain distinct:
+
+| State | Required helper | `Or` helper |
+| --- | --- | --- |
+| Key is absent | Type zero value and `ErrNonExistentKey` | Caller-supplied default |
+| Scalar is an empty string | Type zero value and nil error | Caller-supplied default |
+| Conversion fails | `*FieldError` | `*FieldError` |
+
+An empty string is not synonymous with “required.” Validate separately when a value must be non-empty or greater than zero.
+
+## Supported types
+
+Generic parsing supports:
+
+- `string` and `bool`;
+- every signed and unsigned integer type;
+- `float32` and `float64`;
+- `time.Duration` and `time.Time`;
+- `BindUnmarshaler`, `encoding.TextUnmarshaler`, and `json.Unmarshaler`.
+
+The same conversion layer works without HTTP:
+
+```go
+timeout, err := binding.ParseValue[time.Duration]("750ms")
+ids, err := binding.ParseValues[int64]([]string{"10", "20"})
+```
+
+## Time
+
+`time.Time` defaults to `time.RFC3339Nano` parsing and UTC. Pass a layout or `TimeOpts` for a different wire format:
+
+```go
+date, err := binding.QueryParam[time.Time](
+	r,
+	"date",
+	binding.TimeLayout("2006-01-02"),
+)
+
+createdAt, err := binding.QueryParam[time.Time](
+	r,
+	"created_at",
+	binding.TimeLayoutUnixTimeMilli,
+)
+```
+
+Unix seconds and nanoseconds are supported as well. `ParseInLocation` controls parsing for layouts without a zone, and `ToInLocation` converts the result. Passing time options for another target type returns an error.
+
+## Fluent API
+
+Use `ValueBinder` to read several fields from the same source:
+
+```go
+var (
+	page   = 1
+	limit  = 20
+	tags   []string
+	active bool
+)
+
+err := binding.QueryParamsBinder(r).
+	Int("page", &page).
+	Int("limit", &limit).
+	Strings("tag", &tags).
+	Bool("active", &active).
+	BindError()
+```
+
+There are three entry points:
+
+```go
+binding.PathValuesBinder(r)
+binding.QueryParamsBinder(r)
+binding.FormFieldBinder(r)
+```
+
+Ordinary scalar methods are optional: an absent value or empty first value leaves the destination unchanged. A `Must` prefix requires a present, non-empty value:
+
+```go
+err := binding.PathValuesBinder(r).
+	MustUint("user_id", &userID).
+	BindError()
+```
+
+Plural methods such as `Ints`, `Strings`, and `Durations` read all occurrences. `Must...s` requires at least one value.
+
+## Fail fast or collect all errors
+
+Chains stop after the first error by default. Disable fail-fast before any conversions to collect several failures:
+
+```go
+binder := binding.QueryParamsBinder(r).
+	FailFast(false).
+	MustInt("page", &page).
+	MustInt("limit", &limit)
+
+if errs := binder.BindErrors(); len(errs) != 0 {
+	// Map them to the application's field-error format.
+}
+```
+
+`BindError` returns the first stored error, while `BindErrors` returns them all. Both clear the binder's stored errors.
+
+## Delimited and custom values
+
+A parameter can be repeated and contain delimiters:
+
+```go
+var ids []int64
+err := binding.QueryParamsBinder(r).
+	MustBindWithDelimiter("id", &ids, ",").
+	BindError()
+```
+
+`?id=1,2&id=3` produces `[]int64{1, 2, 3}`. Custom conversion is available through `BindUnmarshaler`, `TextUnmarshaler`, `JSONUnmarshaler`, and `CustomFunc`.
+
+<Callout type="warning" title="FormFieldBinder hides parse failures">
+  The getters used by `FormFieldBinder` can only return an empty value when form
+  parsing fails. If a handler must distinguish “missing field” from “form could
+  not be parsed,” use `FormValue`, `FormValues`, or `BindBody`.
+</Callout>

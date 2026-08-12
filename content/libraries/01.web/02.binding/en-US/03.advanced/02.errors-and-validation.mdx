@@ -1,0 +1,127 @@
+---
+title: Errors and validation
+description: Classify failures, inspect field details, and separate conversion from validation.
+---
+
+# Errors and validation
+
+binding returns errors and never writes an HTTP response. Preserve the error chain and let one application boundary select status codes and public payloads.
+
+## Error sources
+
+| Error | Where it appears |
+| --- | --- |
+| `ErrUnsupportedMediaType` | `BindBody` cannot select a decoder for a non-empty request |
+| `ErrBadRequest` | Struct conversion or JSON, XML, and form parsing fails |
+| `ErrNonExistentKey` | A required generic helper cannot find a key |
+| `*FieldError` | Generic conversion fails, or a fluent required/conversion step fails |
+
+`ErrBadRequest` and `ErrUnsupportedMediaType` are `BindingError` values. Wrapped failures remain classifiable with `errors.Is` while retaining their original cause.
+
+```go
+switch {
+case errors.Is(err, binding.ErrUnsupportedMediaType):
+	// The application may map this to 415.
+case errors.Is(err, binding.ErrBadRequest):
+	// The application may map this to 400.
+case errors.Is(err, binding.ErrNonExistentKey):
+	// A required generic key is absent.
+}
+```
+
+`ErrInvalidKeyType` remains exported for compatibility. Current generic parsing reports concrete unsupported-type or parsing failures, so new code should not rely on that sentinel for classification.
+
+If form parsing itself fails, `FormValue` and `FormValues` add field context but do not normalize the result to a `BindingError`. Preserve and inspect the underlying error, or map it at the same HTTP boundary.
+
+## Field errors
+
+```go
+var fieldErr *binding.FieldError
+if errors.As(err, &fieldErr) {
+	log.Printf(
+		"field=%s message=%s values=%q",
+		fieldErr.Field,
+		fieldErr.Message,
+		fieldErr.Values,
+	)
+}
+```
+
+`FieldError` unwraps to both `ErrBadRequest` and its conversion cause. Its JSON representation contains only `field` and `message`:
+
+```json
+{"field":"page","message":"failed to bind field value to int"}
+```
+
+Submitted values and the internal error are omitted. Applications should still map it into their own stable public error contract.
+
+## One HTTP error boundary
+
+```go
+func writeBindingError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, binding.ErrUnsupportedMediaType) {
+		status = http.StatusUnsupportedMediaType
+	}
+
+	payload := struct {
+		Error string `json:"error"`
+		Field string `json:"field,omitempty"`
+	}{Error: http.StatusText(status)}
+
+	var fieldErr *binding.FieldError
+	if errors.As(err, &fieldErr) {
+		payload.Field = fieldErr.Field
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+```
+
+Reflection-based struct binding keeps the failed input key in the error text but does not turn every failure into `FieldError`. Read field details only when `errors.As` succeeds.
+
+## Collect several errors
+
+Struct and generic calls return one error per call. Use the fluent API to report several field failures together:
+
+```go
+binder := binding.QueryParamsBinder(r).
+	FailFast(false).
+	MustInt("page", &page).
+	MustInt("limit", &limit)
+
+if errs := binder.BindErrors(); len(errs) > 0 {
+	// Convert them to the application's error list.
+}
+```
+
+## Binding is not business validation
+
+```go
+type listInput struct {
+	Page  int `query:"page"`
+	Limit int `query:"limit"`
+}
+
+func (in listInput) validate() error {
+	if in.Page < 1 {
+		return errors.New("page must be positive")
+	}
+	if in.Limit < 1 || in.Limit > 100 {
+		return errors.New("limit must be between 1 and 100")
+	}
+	return nil
+}
+```
+
+A useful handler sequence is:
+
+1. bind and convert transport input;
+2. validate ranges, formats, and cross-field constraints;
+3. authorize using server-owned identity;
+4. map explicitly to domain values;
+5. execute business behavior.
+
+This keeps malformed transport input separate from authorization failures and domain conflicts.

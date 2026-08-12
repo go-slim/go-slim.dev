@@ -1,0 +1,55 @@
+---
+title: BasicAuth
+description: Protect a handler with HTTP Basic credentials and validate usernames and passwords safely.
+---
+
+# BasicAuth
+
+`BasicAuth` reads a username and password from `Authorization: Basic ...`. Valid credentials reach the next handler; missing or invalid credentials produce `401 Unauthorized` with `WWW-Authenticate`.
+
+## Quick start
+
+```go
+import "crypto/subtle"
+
+auth := middleware.BasicAuth(func(
+	r *http.Request,
+	username, password string,
+) (bool, error) {
+	userOK := subtle.ConstantTimeCompare(
+		[]byte(username), []byte(os.Getenv("ADMIN_USERNAME")),
+	) == 1
+	passOK := subtle.ConstantTimeCompare(
+		[]byte(password), []byte(os.Getenv("ADMIN_PASSWORD")),
+	) == 1
+	return userOK && passOK, nil
+})
+
+http.Handle("/admin/", auth(adminHandler))
+```
+
+The validator is required; passing `nil` panics during construction. Compare credentials with `crypto/subtle.ConstantTimeCompare`, not ordinary string equality.
+
+## Full configuration
+
+```go
+auth := middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
+	Realm:             "Admin area",
+	AllowedCheckLimit: 1,
+	Validator:         validateCredential,
+	Skipper:           skipHealth,
+	ErrorHandler:      writeAPIError,
+})
+```
+
+- `Realm` defaults to `Restricted` and appears in the authentication challenge.
+- `AllowedCheckLimit` defaults to `1` and limits matching Basic header values checked per request.
+- `ErrorHandler` handles malformed credentials and validator errors. Missing or rejected credentials use `ErrInvalidCredentials` with the recommended status `401`; malformed Base64 recommends `400`, while a validator error recommends `500`.
+
+## Multiple Authorization values
+
+The middleware ignores other authentication schemes and examines matching `Basic` header values until one succeeds or `AllowedCheckLimit` is reached. Invalid Base64 is bad client input; a missing colon or a `false` validator result is an invalid credential.
+
+<Callout title="Authentication is not authorization">
+  BasicAuth establishes whether credentials are valid. Check ownership, roles, and operation permissions separately after authentication.
+</Callout>

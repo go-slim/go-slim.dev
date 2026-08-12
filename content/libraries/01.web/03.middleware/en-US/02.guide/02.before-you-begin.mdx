@@ -1,0 +1,100 @@
+---
+title: Before you begin
+description: Establish ordering, skip rules, error responses, and concurrency boundaries before composing middleware.
+---
+
+# Before you begin
+
+Individual middleware configurations are usually short. Composition boundaries are where most mistakes happen. Decide the following before selecting specific middleware.
+
+## Construction time and request time
+
+Constructors treat invalid configuration as a programming error and may panic—for example, when a required validator, store, or balancer is missing. Build the complete handler graph during startup so deployment fails before it receives traffic.
+
+Request-time failures are passed to an `ErrorHandler`:
+
+```go
+type ErrorHandler func(http.ResponseWriter, *http.Request, int, error)
+```
+
+The integer is the middleware's recommended HTTP status. The application owns the final response and may replace that status according to the error or its response policy. The error remains available for logging and for `errors.Is` / `errors.As` checks against middleware-specific errors such as `ErrInvalidCredentials`, `ErrKeyMissing`, `ErrCSRFInvalid`, `ErrRateLimitExceeded`, and `ErrProxyFailure`.
+
+An error handler owns the complete response and must not call the downstream handler again. `DefaultErrorHandler` writes only the standard status text and deliberately does not expose the underlying error. A JSON API can centralize its response envelope here:
+
+```go
+func writeAPIError(
+	w http.ResponseWriter,
+	_ *http.Request,
+	status int,
+	err error,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": status,
+		"error":  publicMessage(err),
+	})
+}
+```
+
+Treat `status` as a recommendation rather than reconstructing it from broad sentinel errors. If you replace it, keep the public status, logged cause, and retry behavior consistent.
+
+## Draw the execution order first
+
+```go
+handler := middleware.Recover()(
+	middleware.RequestID()(
+		middleware.RequestLogger()(
+			middleware.BodyLimit(2 << 20)(mux),
+		),
+	),
+)
+```
+
+Requests run from the outside in; responses return from the inside out. A useful starting point is:
+
+```text
+Recover
+└─ RequestID
+   └─ RequestLogger
+      └─ CORS / Secure
+         └─ BodyLimit
+            └─ Decompress
+               └─ Auth / CSRF / RateLimiter
+                  └─ Gzip
+                     └─ Router
+```
+
+This is not a universal stack to copy unchanged. Let semantics determine the order: `RequestID` must wrap the logger if the logger should record it; `BodyLimit` must wrap middleware that reads the body; `Recover` is normally outermost; and `ContextTimeout` is unsuitable for streamed responses.
+
+## Express scope with Skipper
+
+Most configurations provide:
+
+```go
+type Skipper func(*http.Request) bool
+```
+
+Returning `true` bypasses that middleware. The default never skips. Centralizing exceptions for health checks, public routes, or streaming endpoints in a `Skipper` is easier to review than silently returning from callbacks.
+
+```go
+skipHealth := func(r *http.Request) bool {
+	return r.URL.Path == "/health"
+}
+```
+
+## Configurations and callbacks must be concurrent-safe
+
+A single handler serves many requests concurrently. Do not mutate configurations, maps, or slices after construction. Validators, logging callbacks, custom stores, transports, and balancers must also be safe for concurrent use.
+
+Keep request-scoped data in the request context, local variables, or dedicated concurrent structures rather than writing it back to shared configuration.
+
+## Optional ResponseWriter capabilities
+
+Middleware that captures, compresses, or proxies responses wraps `http.ResponseWriter`. Package wrappers expose `Unwrap` for `http.ResponseController`, but capabilities such as `Flush`, `Hijack`, and deadlines still depend on the underlying writer.
+
+Handle `http.ErrNotSupported` when using optional capabilities. For WebSocket, SSE, and long-lived streams, verify each middleware for buffering, compression, and timeout behavior.
+
+<Callout title="Start with the smallest stack">
+  Enable only the policies a route needs. Whenever you add middleware, record its position, skip conditions, error format, and trust boundary.
+</Callout>

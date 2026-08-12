@@ -1,0 +1,47 @@
+---
+title: Decompress
+description: 解压 gzip 请求 body，并限制解压后的总字节数。
+---
+
+# Decompress
+
+`Decompress` 只处理 `Content-Encoding: gzip`，其他请求原样进入下游。匹配不区分大小写。
+
+```go
+handler := middleware.Decompress()(mux)
+```
+
+下游执行期间，middleware 会把 `Request.Body` 替换为 gzip reader，移除 `Content-Encoding` 和 `Content-Length`，并把 `ContentLength` 设为 `-1`。返回后会恢复原始 request 元数据并关闭相关 reader。
+
+## 控制解压后大小
+
+```go
+decompress := middleware.DecompressWithConfig(
+	middleware.DecompressConfig{
+		MaxDecompressedSize: 8 << 20,
+		ErrorHandler:        writeAPIError,
+	},
+)
+```
+
+默认上限为 100 MiB。设为 `-1` 可以取消限制，但生产环境通常不应这样做。
+
+无效的 gzip stream 如果在初始化 reader 时被发现，会以建议状态码 `400 Bad Request` 进入 `ErrorHandler`。若是在读取过程中超过上限，`Request.Body.Read` 返回 `*http.MaxBytesError`，body consumer 必须像处理 `BodyLimit` 一样生成 `413` 响应。
+
+## 与 BodyLimit 组合
+
+```go
+handler := middleware.BodyLimit(2 << 20)(
+	middleware.DecompressWithConfig(middleware.DecompressConfig{
+		MaxDecompressedSize: 8 << 20,
+	})(mux),
+)
+```
+
+外层 `BodyLimit` 约束线上传输的压缩体，`Decompress` 约束展开后的内容。两者一起防止大传输与小体积 zip bomb。
+
+可通过 `GzipDecompressPool` 注入复用池；池必须并发安全，并且每次返回非 nil 的 `*gzip.Reader`。大多数应用保留默认池即可。
+
+<Callout title="只声明一种 content coding">
+  该 middleware 识别完整值 `gzip`，不会解析多层 Content-Encoding 链。若协议允许多重编码，需要在边缘统一规范或自行实现解码链。
+</Callout>

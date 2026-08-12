@@ -1,0 +1,17 @@
+---
+title: 进阶
+description: 设计错误契约，并理解请求级状态与资源边界。
+---
+
+# 进阶
+
+完成基础转换后，还需要明确哪些错误可以公开、哪些状态只属于单个请求，以及哪些资源必须由应用限制。
+
+## 主题
+
+- [错误与验证](/zh-Hans/libraries/binding/advanced/errors-and-validation)：错误分类、`FieldError`、响应映射，以及类型转换与业务验证的边界。
+- [请求生命周期](/zh-Hans/libraries/binding/advanced/middleware)：可选 Middleware、手动路径值、query 缓存、multipart 内存、重复读取和并发边界。
+
+## 上线之前
+
+使用专用输入结构体，在解码前限制不可信请求体，把错误渲染集中在一个 HTTP 边界，并确保每个请求只绑定一次 JSON 或 XML。
