@@ -1,0 +1,217 @@
+---
+import { render } from 'astro:content'
+import { Icon } from 'astro-icon/components'
+import ArticleHeader from './article-header.astro'
+import { getAppFooterContent } from '#components/app/footer/content.ts'
+import Callout from '#components/callout.astro'
+import { proseComponents } from '#components/prose/index.ts'
+import TableOfContents from './table-of-contents.astro'
+import Footer from '#components/ui/footer/index.astro'
+import LibraryStatusBadge from '#components/ui/library-status-badge.astro'
+import { getLibrarySidebar, type LibraryDocument } from '#lib/content.ts'
+import type { SidebarItem } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  document: LibraryDocument
+}
+
+const { document } = Astro.props
+const sidebar = await getLibrarySidebar(document.locale, document.library)
+const { Content, headings } = await render(document.entry)
+const canonicalUrl = new URL(
+  document.href,
+  Astro.site ?? Astro.url.origin,
+).href
+const toc = headings.filter((heading) => heading.depth === 2 || heading.depth === 3)
+const t = useTranslations(document.locale)
+const footerContent = getAppFooterContent(document.locale)
+const labels = {
+  docs: t('docs.label'),
+  toc: t('docs.onThisPage'),
+  previous: t('docs.previous'),
+  next: t('docs.next'),
+}
+type Section = { root: SidebarItem; children: SidebarItem[] }
+const sidebarIconName = (icon: string | undefined, fallback: string) =>
+  icon === undefined ? fallback : icon.includes(':') ? icon : `tabler:${icon}`
+const sections = sidebar.reduce<Section[]>((result, item) => {
+  const current = result.at(-1)
+  if (item.depth > 0 && current?.root.isSection) current.children.push(item)
+  else result.push({ root: item, children: [] })
+  return result
+}, [])
+const currentIndex = sidebar.findIndex((item) => item.slug === document.slug)
+const previous = currentIndex > 0 ? sidebar[currentIndex - 1] : undefined
+const next =
+  currentIndex >= 0 && currentIndex < sidebar.length - 1
+    ? sidebar[currentIndex + 1]
+    : undefined
+---
+
+<div
+  class:list={[
+    'mx-auto grid max-w-page @[64rem]/app:grid-cols-[15rem_minmax(0,1fr)]',
+    toc.length > 0 && '@[80rem]/app:grid-cols-[15rem_minmax(0,1fr)_13rem]',
+  ]}
+>
+  <aside data-pagefind-ignore class="border-b border-border px-4 py-6 @[48rem]/app:px-6 @[64rem]/app:sticky @[64rem]/app:top-18 @[64rem]/app:row-span-2 @[64rem]/app:h-[calc(100svh-4.5rem)] @[64rem]/app:overflow-y-auto @[64rem]/app:border-b-0">
+    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      {labels.docs}
+    </p>
+    <div class="mt-2 flex items-center gap-2">
+      <h2 class="text-2xl font-semibold">{document.libraryTitle}</h2>
+      <LibraryStatusBadge
+        status={document.libraryStatus}
+        locale={document.locale}
+      />
+    </div>
+    <nav class="mt-6" aria-label={`${document.libraryTitle} ${labels.docs}`}>
+      <ul class="-ms-2">
+        {sections.map((section, index) => {
+          const rootActive = section.root.slug === document.slug
+          const childActive = section.children.some(
+            (item) => item.slug === document.slug,
+          )
+
+          return (
+            <li class:list={['relative', index > 0 && 'mt-4']}>
+              <a
+                href={section.root.href}
+                aria-current={rootActive ? 'page' : undefined}
+                class:list={[
+                  'flex items-center gap-1.5 rounded-sm px-2 py-1.5 leading-tight transition-colors hover:bg-muted',
+                  section.children.length > 0 && 'font-semibold',
+                  rootActive
+                    ? 'font-medium text-primary-accent'
+                    : childActive
+                      ? 'text-primary-accent'
+                      : 'text-muted-foreground hover:text-foreground',
+                ]}
+              >
+                <Icon
+                  name={sidebarIconName(
+                    section.root.icon,
+                    section.children.length
+                      ? 'tabler:book-2'
+                      : 'tabler:file-description',
+                  )}
+                  class="size-5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{section.root.title}</span>
+              </a>
+              {section.children.length > 0 && (
+                <ul class="relative mt-1 ps-6.5 before:absolute before:inset-y-0 before:left-4.5 before:w-px before:-translate-x-1/2 before:bg-border">
+                  {section.children.map((item) => {
+                    const active = item.slug === document.slug
+                    return (
+                      <li>
+                        <a
+                          href={item.href}
+                          aria-current={active ? 'page' : undefined}
+                          class:list={[
+                            'block rounded-sm px-2 py-1.5 leading-tight transition-colors hover:bg-muted',
+                            active
+                              ? 'font-medium text-primary-accent'
+                              : 'text-muted-foreground hover:text-foreground',
+                          ]}
+                          style={`margin-inline-start:${Math.max(0, item.depth - 1) * 0.75}rem`}
+                        >
+                          {item.title}
+                        </a>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+        {document.libraryLlms && (
+          <li class="relative mt-4">
+            <p class="flex items-center gap-1.5 px-2 py-1.5 font-semibold text-muted-foreground">
+              <Icon
+                name="tabler:robot-face"
+                class="size-5 shrink-0"
+                aria-hidden="true"
+              />
+              <span>AI</span>
+            </p>
+            <ul class="relative mt-1 ps-6.5 before:absolute before:inset-y-0 before:left-4.5 before:w-px before:-translate-x-1/2 before:bg-border">
+              {[...document.libraryLlms.files, 'SKILL.md'].map((file) => (
+                <li>
+                  <a
+                    href={`/${document.library}/${file}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block rounded-sm px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <span class="font-mono text-[0.8125rem]">{file}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </li>
+        )}
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="min-w-0 px-4 py-10 @[48rem]/app:px-8 @[64rem]/app:px-12 @[64rem]/app:py-14">
+    <div class="mx-auto max-w-reading">
+      <ArticleHeader
+        eyebrow={document.libraryTitle}
+        title={document.title}
+        description={document.description}
+        markdown={document.entry.body ?? ''}
+        canonicalUrl={canonicalUrl}
+        locale={document.locale}
+      />
+      <article class="leading-8">
+        <Content components={{ ...proseComponents, Callout }} />
+      </article>
+      {(previous || next) && (
+        <nav
+          class="mt-16 grid gap-4 border-t border-border border-dashed pt-6 @[48rem]/app:grid-cols-2"
+          aria-label={t('docs.pagination')}
+        >
+          {previous && (
+            <a
+              href={previous.href}
+              class="group flex min-h-24 flex-col rounded-lg border border-border p-4 transition-colors hover:border-primary hover:bg-accent"
+            >
+              <span class="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                <Icon is:inline name="tabler:arrow-left" class="size-4 transition-transform group-hover:-translate-x-1/3" />
+                {labels.previous}
+              </span>
+              <span class="mt-2 font-medium">{previous.title}</span>
+            </a>
+          )}
+          {next && (
+            <a
+              href={next.href}
+              class:list={[
+                'group flex min-h-24 flex-col items-end rounded-lg border border-border p-4 text-right transition-colors hover:border-primary hover:bg-accent',
+                !previous && '@[48rem]/app:col-start-2',
+              ]}
+            >
+              <span class="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                {labels.next}
+                <Icon is:inline name="tabler:arrow-right" class="size-4 transition-transform group-hover:translate-x-1/3" />
+              </span>
+              <span class="mt-2 font-medium">{next.title}</span>
+            </a>
+          )}
+        </nav>
+      )}
+      <Footer
+        {...footerContent}
+        class="mt-12 p-0"
+        containerClass="max-w-none px-0 @[48rem]/app:px-0 @[64rem]/app:px-0"
+      />
+    </div>
+  </main>
+
+  {toc.length > 0 && <TableOfContents headings={toc} label={labels.toc} />}
+</div>

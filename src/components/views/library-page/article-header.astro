@@ -1,0 +1,159 @@
+---
+import { Icon } from 'astro-icon/components'
+import Item from '#components/ui/item/index.astro'
+import Popover from '#components/ui/popover/index.astro'
+import type { ContentLocale } from '#lib/content-types.ts'
+import { useTranslations } from '#i18n/utils.ts'
+
+type Props = {
+  eyebrow: string
+  title: string
+  description?: string
+  markdown: string
+  canonicalUrl: string
+  locale: ContentLocale
+}
+
+const {
+  eyebrow,
+  title,
+  description,
+  markdown,
+  canonicalUrl,
+  locale,
+} = Astro.props
+const t = useTranslations(locale)
+const prompt = t('article.prompt', { url: canonicalUrl })
+const assistantLinks = [
+  {
+    label: t('article.openClaude'),
+    description: t('article.askClaude'),
+    href: `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
+    icon: 'tabler:sparkles',
+  },
+  {
+    label: t('article.openChatGPT'),
+    description: t('article.askChatGPT'),
+    href: `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
+    icon: 'tabler:brand-openai',
+  },
+  {
+    label: t('article.openKimi'),
+    description: t('article.askKimi'),
+    href: `https://www.kimi.com/?q=${encodeURIComponent(prompt)}`,
+    icon: 'tabler:letter-k',
+  },
+]
+const serializedMarkdown = JSON.stringify(markdown).replaceAll('<', '\\u003c')
+---
+
+<header
+  class="mb-12 border-b border-border pb-6"
+  data-article-header
+  data-copy-success={t('article.copied')}
+  data-copy-failed={t('article.copyFailed')}
+>
+  <div class="flex items-start justify-between gap-8">
+    <div class="min-w-0">
+      <p class="text-sm font-semibold tracking-wide text-primary">
+        {eyebrow}
+      </p>
+      <h1 class="mt-4 text-document-title font-semibold tracking-display">
+        {title}
+      </h1>
+      {description && (
+        <p class="mt-6 max-w-3xl text-lg leading-8 text-muted-foreground">
+          {description}
+        </p>
+      )}
+    </div>
+    <div class="contents" data-pagefind-ignore>
+      <Popover
+        align="end"
+        closeOnScroll
+        offset={8}
+        dialogLabel={t('article.copyPage')}
+        class="hidden shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&:has(+_[popover]:popover-open)]:bg-accent [&:has(+_[popover]:popover-open)]:text-foreground @[48rem]/app:inline-flex"
+        dialogClass="w-72 gap-1 rounded-xl p-2 shadow-overlay"
+      >
+      <Fragment slot="trigger">
+        <Icon name="tabler:copy" class="size-4" aria-hidden="true" />
+        <span class="text-sm" data-copy-label>
+          {t('article.copyPage')}
+        </span>
+        <Icon name="tabler:chevron-down" class="size-4" aria-hidden="true" />
+      </Fragment>
+      <Fragment slot="dialog">
+        <Item
+          as="button"
+          data-copy-markdown
+          type="button"
+          icon={{ name: 'tabler:copy', class: 'size-6' }}
+          title={t('article.copyMarkdown')}
+          subtitle={t('article.copyMarkdownDescription')}
+          class="w-full items-start gap-3 rounded-lg p-3 hover:bg-accent"
+          leadingClass="mt-0.5"
+          titleClass="font-semibold"
+          subtitleClass="mt-1 block text-sm text-muted-foreground"
+        />
+        {assistantLinks.map((item) => (
+          <Item
+            href={item.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            external="follow"
+            externalIcon={{
+              name: 'tabler:external-link',
+              class: 'size-4 text-muted-foreground/60',
+            }}
+            icon={{ name: item.icon, class: 'size-6' }}
+            title={item.label}
+            subtitle={item.description}
+            class="items-start gap-3 rounded-lg p-3 hover:bg-accent"
+            leadingClass="mt-0.5"
+            titleClass="font-semibold"
+            subtitleClass="mt-1 block text-sm text-muted-foreground"
+          />
+        ))}
+      </Fragment>
+      </Popover>
+    </div>
+  </div>
+  <script
+    is:inline
+    type="application/json"
+    data-article-markdown
+    set:html={serializedMarkdown}
+  />
+</header>
+
+<script>
+  document
+    .querySelectorAll<HTMLElement>('[data-article-header]')
+    .forEach((header) => {
+      const button = header.querySelector<HTMLButtonElement>(
+        '[data-copy-markdown]',
+      )
+      const source = header.querySelector<HTMLElement>(
+        '[data-article-markdown]',
+      )
+      const label = header.querySelector<HTMLElement>('[data-copy-label]')
+      if (!button || !source || !label || button.dataset.copyReady) return
+
+      button.dataset.copyReady = 'true'
+      button.addEventListener('click', async () => {
+        const original = label.textContent
+        try {
+          await navigator.clipboard.writeText(
+            JSON.parse(source.textContent ?? '""') as string,
+          )
+          label.textContent = header.dataset.copySuccess ?? 'Copied'
+        } catch {
+          label.textContent = header.dataset.copyFailed ?? 'Copy failed'
+        }
+        window.setTimeout(() => {
+          label.textContent = original
+        }, 1800)
+      })
+    })
+</script>

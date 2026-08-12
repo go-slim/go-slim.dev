@@ -1,0 +1,36 @@
+---
+import BaseLayout from '#components/layouts/base.astro'
+import LibraryPage from '#components/views/library-page/index.astro'
+import { getLibraryDocuments, type LibraryDocument } from '#lib/content.ts'
+
+export async function getStaticPaths() {
+  return (await getLibraryDocuments())
+    .filter((document) => document.locale === 'zh-Hans')
+    .map((document) => ({
+      params: {
+        library: document.library,
+        slug: document.slug === 'index' ? undefined : document.slug,
+      },
+      props: { document },
+    }))
+}
+
+type Props = {
+  document: LibraryDocument
+}
+
+const { document } = Astro.props
+const pageTitle =
+  document.title === document.libraryTitle
+    ? `${document.libraryTitle} — go-slim`
+    : `${document.title} — ${document.libraryTitle} — go-slim`
+---
+
+<BaseLayout
+  locale="zh-Hans"
+  title={pageTitle}
+  description={document.description}
+  notFooter
+>
+  <LibraryPage document={document} />
+</BaseLayout>

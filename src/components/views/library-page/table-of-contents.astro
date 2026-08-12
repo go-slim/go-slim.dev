@@ -1,0 +1,133 @@
+---
+type Heading = {
+  depth: number
+  slug: string
+  text: string
+}
+
+type Props = {
+  headings: readonly Heading[]
+  label: string
+}
+
+const { headings, label } = Astro.props
+---
+
+<aside data-pagefind-ignore class="hidden @[80rem]/app:block">
+  <nav data-table-of-contents class="sticky top-32 px-4" aria-label={label}>
+    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      {label}
+    </p>
+    <div class="relative mt-5 border-s border-border">
+      <div
+        data-toc-indicator
+        class="pointer-events-none absolute -inset-s-px top-0 w-px bg-primary transition-[transform,height] duration-200 motion-reduce:transition-none"
+        aria-hidden="true"
+      ></div>
+      <ol class="space-y-1">
+        {headings.map((heading) => (
+          <li>
+            <a
+              data-toc-link
+              href={`#${heading.slug}`}
+              class:list={[
+                'block py-1.5 text-sm leading-5 text-muted-foreground transition-colors hover:text-primary',
+                heading.depth === 2 ? 'ps-4' : 'ps-7',
+              ]}
+            >
+              {heading.text}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </div>
+  </nav>
+</aside>
+
+<script>
+  const installTableOfContents = () => {
+    for (const toc of document.querySelectorAll<HTMLElement>(
+      '[data-table-of-contents]:not([data-toc-ready])',
+    )) {
+      toc.dataset.tocReady = ''
+
+      const links = Array.from(
+        toc.querySelectorAll<HTMLAnchorElement>('[data-toc-link]'),
+      )
+      const indicator = toc.querySelector<HTMLElement>('[data-toc-indicator]')
+      if (indicator === null) continue
+
+      const items = links.flatMap((link) => {
+        const id = decodeURIComponent(link.hash.slice(1))
+        const heading = document.getElementById(id)
+        return heading === null ? [] : [{ heading, link }]
+      })
+      if (items.length === 0) continue
+
+      const update = () => {
+        const rootFontSize = Number.parseFloat(
+          getComputedStyle(document.documentElement).fontSize,
+        )
+        const viewportTop = Number.isFinite(rootFontSize)
+          ? rootFontSize * 5
+          : 80
+
+        const active = items
+          .map(({ heading }) => heading)
+          .filter((heading, index, headings) => {
+            const sectionTop = heading.getBoundingClientRect().top
+            const nextSectionTop =
+              headings[index + 1]?.getBoundingClientRect().top ??
+              Number.POSITIVE_INFINITY
+
+            return sectionTop < innerHeight && nextSectionTop > viewportTop
+          })
+
+        if (active.length === 0) {
+          const before = items
+            .map(({ heading }) => heading)
+            .filter((heading) => heading.getBoundingClientRect().top < 160)
+          const previous = before.at(-1)
+          if (previous !== undefined) active.push(previous)
+        }
+
+        for (const item of items) {
+          item.link.classList.toggle('text-primary', active.includes(item.heading))
+        }
+
+        const activeLinks = links.filter((link) =>
+          link.classList.contains('text-primary'),
+        )
+        if (activeLinks.length === 0) {
+          indicator.style.height = '0'
+          return
+        }
+
+        const listRect = indicator.parentElement?.getBoundingClientRect()
+        if (listRect === undefined) return
+        const firstRect = activeLinks[0].getBoundingClientRect()
+        const lastRect = activeLinks.at(-1)?.getBoundingClientRect()
+        if (lastRect === undefined) return
+
+        indicator.style.transform = `translateY(${firstRect.top - listRect.top}px)`
+        indicator.style.height = `${lastRect.bottom - firstRect.top}px`
+      }
+
+      let frame = 0
+      const scheduleUpdate = () => {
+        if (frame !== 0) return
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          update()
+        })
+      }
+
+      addEventListener('scroll', scheduleUpdate, { passive: true })
+      addEventListener('resize', scheduleUpdate, { passive: true })
+      update()
+    }
+  }
+
+  installTableOfContents()
+  document.addEventListener('astro:page-load', installTableOfContents)
+</script>
