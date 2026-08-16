@@ -59,6 +59,7 @@ export interface SlashCommandsComponent {
   handleSubmit(): void
   move(offset: number): void
   moveBoundary(last?: boolean): void
+  ensureActiveVisible(): void
   activateCurrent(): boolean
   executeCommand(command: AssistantSlashCommand): void
   handleSessionKeydown(event: KeyboardEvent): void
@@ -133,6 +134,7 @@ export const slashCommands = (
       Math.max(0, this.filteredCommands.length - 1),
     )
     this.syncTextboxA11y()
+    void this.$nextTick(() => this.ensureActiveVisible())
   },
 
   handleComposition(event) {
@@ -262,12 +264,39 @@ export const slashCommands = (
     this.activeIndex =
       (this.activeIndex + offset + this.itemCount) % this.itemCount
     this.syncTextboxA11y()
+    void this.$nextTick(() => this.ensureActiveVisible())
   },
 
   moveBoundary(last = false) {
     if (this.itemCount === 0) return
     this.activeIndex = last ? this.itemCount - 1 : 0
     this.syncTextboxA11y()
+    void this.$nextTick(() => this.ensureActiveVisible())
+  },
+
+  ensureActiveVisible() {
+    if (this.surface === 'sessions') return
+
+    const scrollArea = this.$root.querySelector<HTMLElement>(
+      '[data-slash-scroll]',
+    )
+    const option = this.$root.querySelector<HTMLElement>(
+      `#assistant-slash-option-${this.activeIndex}`,
+    )
+    if (
+      !(scrollArea instanceof HTMLElement) ||
+      !(option instanceof HTMLElement)
+    ) {
+      return
+    }
+
+    const viewport = scrollArea.getBoundingClientRect()
+    const item = option.getBoundingClientRect()
+    if (item.top < viewport.top) {
+      scrollArea.scrollTop -= viewport.top - item.top
+    } else if (item.bottom > viewport.bottom) {
+      scrollArea.scrollTop += item.bottom - viewport.bottom
+    }
   },
 
   activateCurrent() {
@@ -309,6 +338,7 @@ export const slashCommands = (
       )
       this.activeIndex = selectedIndex >= 0 ? selectedIndex : 0
       this.syncTextboxA11y()
+      void this.$nextTick(() => this.ensureActiveVisible())
       return
     }
     if (command === 'sessions') {

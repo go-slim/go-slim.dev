@@ -74,7 +74,7 @@ const data = `slashCommands(${JSON.stringify({
   <section
     x-cloak
     x-show="open"
-    class="absolute inset-x-2 bottom-full z-50 mb-2 max-h-[min(24rem,calc(100svh-8rem))] overflow-y-auto rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-overlay"
+    class="absolute inset-x-2 bottom-full z-50 mb-2 flex max-h-[min(24rem,calc(100svh-8rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-overlay"
     :role="surface === 'sessions' ? 'dialog' : null"
     :aria-label="surface === 'sessions' ? options.labels.sessions : null"
     @click.outside="closeSurface(true)"
@@ -82,7 +82,7 @@ const data = `slashCommands(${JSON.stringify({
   >
     <header
       x-show="surface === 'models' || surface === 'sessions'"
-      class="flex items-center gap-2 px-2 pb-2 pt-1"
+      class="flex shrink-0 items-center gap-2 px-2 pb-2 pt-1"
     >
       <button
         x-ref="back"
@@ -101,8 +101,11 @@ const data = `slashCommands(${JSON.stringify({
 
     <div
       id="assistant-slash-options"
+      data-slash-scroll
+      class="min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       :role="surface === 'commands' || surface === 'models' ? 'listbox' : null"
       :aria-label="surface === 'models' ? options.labels.models : surface === 'commands' ? options.labels.commands : null"
+      @wheel.stop
     >
       <template x-if="surface === 'commands'">
         <div class="table w-full border-separate border-spacing-y-1">
