@@ -412,6 +412,8 @@ const getStoredPanelOpen = (): boolean => {
 }
 
 const storePanelOpen = (open: boolean): void => {
+  document.documentElement.dataset.assistantPanel = open ? 'open' : 'closed'
+
   try {
     localStorage.setItem(panelStorageKey, String(open))
   } catch {
@@ -647,6 +649,17 @@ export const createAiStore = (
               console.warn('Could not save the AI conversation.', error)
             })
           }
+        },
+        { signal },
+      )
+      window.addEventListener(
+        'pageshow',
+        () => {
+          const open = getStoredPanelOpen()
+          this.panelOpen = open
+          document.documentElement.dataset.assistantPanel = open
+            ? 'open'
+            : 'closed'
         },
         { signal },
       )

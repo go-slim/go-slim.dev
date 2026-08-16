@@ -18,16 +18,9 @@ const t = useTranslations(locale)
 ---
 
 <div
+  data-assistant-backdrop
   x-data
-  x-cloak
-  x-show="$store.ai.panelOpen"
-  x-transition:enter="transition-opacity duration-200 ease-out motion-reduce:transition-none"
-  x-transition:enter-start="opacity-0"
-  x-transition:enter-end="opacity-100"
-  x-transition:leave="transition-opacity duration-150 ease-in motion-reduce:transition-none"
-  x-transition:leave-start="opacity-100"
-  x-transition:leave-end="opacity-0"
-  class="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs lg:hidden"
+  class="fixed inset-0 z-60 bg-black/40 opacity-0 pointer-events-none backdrop-blur-xs transition-opacity duration-200 ease-out motion-reduce:transition-none lg:hidden"
   aria-hidden="true"
   @click="$store.ai.closePanel()"
 ></div>
@@ -36,17 +29,15 @@ const t = useTranslations(locale)
   id="assistant-panel"
   x-data="assistantPanel"
   x-ref="panel"
-  x-cloak
   tabindex="-1"
   aria-labelledby="assistant-panel-title"
+  aria-hidden="true"
+  inert
   x-bind:role="mobile ? 'dialog' : null"
   x-bind:aria-modal="mobile && $store.ai.panelOpen ? 'true' : null"
   x-bind:aria-hidden="!$store.ai.panelOpen"
   x-bind:inert="!$store.ai.panelOpen"
   x-effect="syncPanel($store.ai.panelOpen)"
-  x-bind:class="$store.ai.panelOpen
-    ? 'translate-x-0 opacity-100 lg:w-96 lg:border-l'
-    : 'pointer-events-none translate-x-full opacity-0 lg:w-0 lg:translate-x-0 lg:border-l-0'"
   @keydown.escape.window="handleEscape($event)"
   @keydown.tab="trapFocus($event)"
   class:list={[

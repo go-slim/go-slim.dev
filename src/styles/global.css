@@ -215,6 +215,41 @@
   }
 }
 
+/*
+ * Keep the persisted assistant geometry available before Alpine starts.
+ * This intentionally sits outside Tailwind's cascade layers so utilities such
+ * as `w-full` cannot override the desktop width during the first paint.
+ */
+#assistant-panel {
+  pointer-events: none;
+  opacity: 0;
+  translate: 100% 0;
+}
+
+html[data-assistant-panel='open'] #assistant-panel {
+  pointer-events: auto;
+  opacity: 1;
+  translate: 0 0;
+}
+
+html[data-assistant-panel='open'] [data-assistant-backdrop] {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+@media (min-width: 64rem) {
+  #assistant-panel {
+    width: 0;
+    border-inline-start-width: 0;
+    translate: 0 0;
+  }
+
+  html[data-assistant-panel='open'] #assistant-panel {
+    width: 24rem;
+    border-inline-start-width: 1px;
+  }
+}
+
 @layer components {
   .assistant-markdown {
     width: 100%;

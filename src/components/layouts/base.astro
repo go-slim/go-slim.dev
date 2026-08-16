@@ -64,6 +64,15 @@ const faviconPaths = {
         document.documentElement.dataset.theme = theme
         document.documentElement.classList.toggle('dark', dark)
 
+        try {
+          document.documentElement.dataset.assistantPanel =
+            localStorage.getItem('go-slim-ai-panel-open') === 'true'
+              ? 'open'
+              : 'closed'
+        } catch {
+          document.documentElement.dataset.assistantPanel = 'closed'
+        }
+
         const favicon = document.querySelector('link[data-theme-favicon]')
         if (favicon instanceof HTMLLinkElement) {
           const href = systemDark
