@@ -87,7 +87,7 @@ const data = `slashCommands(${JSON.stringify({
       <button
         x-ref="back"
         type="button"
-        class="inline-flex size-8 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
+        class="inline-flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
         aria-label={t('assistant.commands.back')}
         @click="surface = 'commands'; activeIndex = 0; syncTextboxA11y(); focusComposer()"
       >
@@ -118,10 +118,10 @@ const data = `slashCommands(${JSON.stringify({
               @click="if (!commandDisabled(command.command)) executeCommand(command.command)"
             >
               <code
-                class="table-cell w-0 whitespace-nowrap rounded-s-lg py-2 ps-3 pe-4 align-top text-primary group-aria-selected:bg-muted group-aria-disabled:opacity-50"
+                class="table-cell w-0 whitespace-nowrap rounded-s-lg py-2 ps-3 pe-4 align-top text-primary transition-colors group-aria-selected:bg-accent group-aria-disabled:opacity-50"
                 x-text="`/${command.command}`"
               ></code>
-              <span class="table-cell min-w-0 rounded-e-lg py-2 pe-3 align-top group-aria-selected:bg-muted group-aria-disabled:opacity-50">
+              <span class="table-cell min-w-0 rounded-e-lg py-2 pe-3 align-top transition-colors group-aria-selected:bg-accent group-aria-selected:text-accent-foreground group-aria-disabled:opacity-50">
                 <strong class="block text-sm" x-text="command.label"></strong>
                 <span class="block text-xs text-muted-foreground" x-text="command.description"></span>
               </span>
@@ -147,7 +147,7 @@ const data = `slashCommands(${JSON.stringify({
               role="option"
               :aria-selected="activeIndex === index"
               :aria-disabled="modelDisabled(model)"
-              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 aria-selected:bg-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent hover:text-accent-foreground aria-selected:bg-accent aria-selected:text-accent-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
               @mouseenter="activeIndex = index; syncTextboxA11y()"
               @mousedown.prevent
               @click="selectModel(index)"
@@ -187,7 +187,7 @@ const data = `slashCommands(${JSON.stringify({
           <ul role="list" class="space-y-1">
             <template x-for="(conversation, index) in $store.ai.conversations" :key="conversation.id">
               <li
-                class="group flex min-h-11 items-stretch overflow-hidden rounded-lg hover:bg-muted focus-within:bg-muted focus-within:ring-3 focus-within:ring-inset focus-within:ring-outline/50"
+                class="group flex min-h-11 items-stretch overflow-hidden rounded-lg transition-colors hover:bg-accent hover:text-accent-foreground focus-within:bg-accent focus-within:text-accent-foreground focus-within:ring-3 focus-within:ring-inset focus-within:ring-outline/50"
               >
                 <button
                   type="button"

@@ -73,7 +73,7 @@ const commands = [
         <li>
           <button
             type="button"
-            class="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
+            class="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-outline/50"
             @click={`insert(${JSON.stringify(command)})`}
           >
             <code class="shrink-0 text-primary">{command}</code>

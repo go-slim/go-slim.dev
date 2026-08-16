@@ -96,7 +96,7 @@ const pickerData = `{
       </p>
       <div class="mt-3 grid gap-1">
         {aiModels.map((model) => (
-          <label class="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-muted has-focus-visible:ring-3 has-focus-visible:ring-outline/50 has-disabled:cursor-not-allowed has-disabled:opacity-50">
+          <label class="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent hover:text-accent-foreground has-focus-visible:bg-accent has-focus-visible:text-accent-foreground has-focus-visible:ring-3 has-focus-visible:ring-outline/50 has-disabled:cursor-not-allowed has-disabled:opacity-50">
             <input
               type="radio"
               :name="$id('assistant-model-options')"
