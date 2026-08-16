@@ -96,8 +96,8 @@ const alpineString = (value: string): string => JSON.stringify(value)
                                 title={item.title}
                                 subtitle={item.description}
                                 class:list={[
-                                  'min-w-48 max-w-72 gap-4 rounded-xs px-4 py-2',
-                                  item.href !== undefined && 'group cursor-pointer hover:bg-accent',
+                                  'min-w-48 max-w-72 gap-4 rounded-lg px-4 py-2',
+                                  item.href !== undefined && 'group cursor-pointer hover:bg-accent focus-visible:bg-accent',
                                 ]}
                                 titleClass="text-lg"
                                 subtitleClass="block truncate text-xs text-muted-foreground"
@@ -124,7 +124,7 @@ const alpineString = (value: string): string => JSON.stringify(value)
                     href={link.more.href}
                     target={link.more.external ? '_blank' : undefined}
                     rel={link.more.external ? 'noopener noreferrer' : undefined}
-                    class="inline-flex items-center gap-2 rounded-xs px-3 py-1.25 hover:bg-accent hover:text-primary"
+                    class="inline-flex items-center gap-2 rounded-lg px-3 py-1.25 hover:bg-accent hover:text-primary focus-visible:bg-accent"
                   >
                     <Icon
                       is:inline
@@ -168,7 +168,7 @@ const alpineString = (value: string): string => JSON.stringify(value)
             x-transition:leave="transition-transform ease-in duration-150 motion-reduce:transition-none"
             x-transition:leave-start="translate-y-0"
             x-transition:leave-end="-translate-y-4"
-            class="min-w-80 rounded-xs bg-card"
+            class="min-w-80 overflow-hidden rounded-xl border border-border bg-card shadow-overlay"
           >
             <div x-effect="renderMenu(open, $refs, $el)"/>
           </div>
