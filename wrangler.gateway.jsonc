@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "go-slim-gateway",
+  "main": "./workers/go-import-gateway.ts",
+  "compatibility_date": "2026-08-06",
+  "routes": [
+    {
+      "pattern": "go-slim.dev/__go_imports__/*",
+      "zone_name": "go-slim.dev"
+    },
+    {
+      "pattern": "go-slim.dev/__llms__/*",
+      "zone_name": "go-slim.dev"
+    }
+  ]
+}

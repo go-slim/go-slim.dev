@@ -55,6 +55,11 @@ export default defineConfig({
   vite: {
     resolve: { tsconfigPaths: true },
     plugins: [tailwindcss()],
+    server: {
+      proxy: {
+        '/api/ai': 'http://127.0.0.1:8787',
+      },
+    },
     worker: { format: 'es' },
   }
 });

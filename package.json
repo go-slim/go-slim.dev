@@ -19,6 +19,11 @@
     "check": "astro check",
     "build": "astro build",
     "preview": "astro preview",
+    "preview:cloudflare": "pnpm build && wrangler dev --remote",
+    "deploy": "pnpm build && wrangler deploy",
+    "deploy:gateway": "wrangler deploy --config wrangler.gateway.jsonc",
+    "deploy:all": "pnpm run deploy && pnpm run deploy:gateway",
+    "check:deploy": "pnpm build && wrangler deploy --dry-run && wrangler deploy --dry-run --config wrangler.gateway.jsonc",
     "astro": "astro"
   },
   "dependencies": {
@@ -53,6 +58,7 @@
     "@types/alpinejs__resize": "^3.14.0",
     "astro-pagefind": "^2.0.1",
     "pagefind": "^1.5.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "wrangler": "^4.123.0"
   }
 }
