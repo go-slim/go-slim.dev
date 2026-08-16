@@ -1,30 +1,9 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --animate-accordion-down: accordion-down 0.2s ease-out;
-  --animate-accordion-up: accordion-up 0.2s ease-out;
-
   /* Typography */
-  --font-sans:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  --font-mono:
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    "Liberation Mono",
-    monospace;
-  --tracking-heading: -0.025em;
   --tracking-display: -0.04em;
   --text-document-title: clamp(2.25rem, 5vw, 3.5rem);
   --text-document-title--line-height: 1.2;
@@ -36,46 +15,20 @@
   --shadow-overlay: 0 24px 64px -20px rgb(10 10 10 / 0.3);
   --container-reading: 48rem;
   --container-page: 80rem;
-
-  --text-ai-lg: 1.2rem;
-  --text-ai-md: 0.9rem;
-  --text-ai-sm: 0.75rem;
-
-  @keyframes accordion-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--starwind-accordion-content-height);
-    }
-  }
-
-  @keyframes accordion-up {
-    from {
-      height: var(--starwind-accordion-content-height);
-    }
-    to {
-      height: 0;
-    }
-  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-accent: var(--primary-accent);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary-accent: var(--secondary-accent);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
+  --color-accent: var(--muted);
   --color-accent-foreground: var(--accent-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
@@ -94,32 +47,22 @@
   --color-ai-border: var(--ai-border);
   --color-ai-backdrop: var(--ai-backdrop);
 
-  --radius-tiny: 2px;
   --radius-xs: calc(var(--radius) - 0.375rem);
   --radius-sm: calc(var(--radius) - 0.25rem);
   --radius-md: calc(var(--radius) - 0.125rem);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 0.25rem);
-  --radius-2xl: calc(var(--radius) + 0.5rem);
-  --radius-3xl: calc(var(--radius) + 1rem);
 }
 
 :root {
   --background: var(--color-white);
   --foreground: var(--color-neutral-950);
   --card: var(--color-white);
-  --card-foreground: var(--color-neutral-950);
-  --popover: var(--color-white);
-  --popover-foreground: var(--color-neutral-950);
   --primary: var(--color-violet-600);
   --primary-foreground: var(--color-violet-50);
   --primary-accent: var(--color-violet-700);
-  --secondary: var(--color-neutral-200);
-  --secondary-foreground: var(--color-neutral-950);
-  --secondary-accent: var(--color-neutral-950);
   --muted: var(--color-neutral-100);
   --muted-foreground: var(--color-neutral-600);
-  --accent: var(--color-neutral-100);
   --accent-foreground: var(--color-neutral-900);
   --info: var(--color-sky-700);
   --info-foreground: var(--color-white);
@@ -144,18 +87,11 @@
   --background: var(--color-neutral-950);
   --foreground: var(--color-neutral-50);
   --card: var(--color-neutral-900);
-  --card-foreground: var(--color-neutral-50);
-  --popover: var(--color-neutral-900);
-  --popover-foreground: var(--color-neutral-50);
   --primary: var(--color-violet-400);
   --primary-foreground: var(--color-violet-950);
   --primary-accent: var(--color-violet-300);
-  --secondary: var(--color-neutral-800);
-  --secondary-foreground: var(--color-neutral-50);
-  --secondary-accent: var(--color-neutral-50);
   --muted: var(--color-neutral-900);
   --muted-foreground: var(--color-neutral-400);
-  --accent: var(--color-neutral-800);
   --accent-foreground: var(--color-neutral-100);
   --info: var(--color-sky-300);
   --info-foreground: var(--color-sky-950);
@@ -184,17 +120,19 @@
   }
 
   * {
-    @apply border-border outline-outline/50;
-    -webkit-tap-highlight-color: transparent;
+    @apply border-border;
   }
   html {
     min-width: 320px;
-    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
   body {
     @apply bg-background font-sans text-foreground scheme-light dark:scheme-dark;
     font-synthesis: none;
-    text-rendering: optimizeLegibility;
   }
   [x-cloak] {
     display: none !important;
@@ -203,15 +141,9 @@
   [role="button"]:not(:disabled) {
     @apply cursor-pointer;
   }
-  .debug {
-    @apply ring-3 ring-inset;
-  }
   :where(a, button, select):focus-visible {
     outline: 2px solid var(--outline);
     outline-offset: 2px;
-  }
-  summary::-webkit-details-marker {
-    display: none;
   }
 }
 
@@ -346,7 +278,7 @@ html[data-assistant-panel='open'] [data-assistant-backdrop] {
 
   .assistant-markdown :not(pre) > code {
     border: 1px solid var(--border);
-    border-radius: var(--radius-tiny);
+    border-radius: 2px;
     background: var(--muted);
     padding: 0.125rem 0.375rem;
     font-family: var(--font-mono);

@@ -48,7 +48,7 @@ const t = useTranslations(locale)
         @keydown.home.prevent="focusBoundaryResult()"
         @keydown.end.prevent="focusBoundaryResult(true)"
         @go-slim-pagefind-focus.window="$el.focus()"
-        class="w-full appearance-none text-ai-lg outline-0 focus:outline-0 focus-visible:outline-0 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+        class="w-full appearance-none text-xl outline-0 focus:outline-0 focus-visible:outline-0 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
       />
     </div>
     <span x-show="searchQuery" x-cloak class="absolute right-0 inset-y-0 flex items-center ps-4.5">
