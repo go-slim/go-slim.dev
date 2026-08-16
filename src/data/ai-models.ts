@@ -30,15 +30,50 @@ export const localAiModels = [
   },
 ] as const
 
+export const cloudflareAiModels = [
+  {
+    id: 'cloudflare:@cf/zai-org/glm-4.7-flash',
+    label: 'GLM-4.7 Flash',
+    provider: 'cloudflare',
+    recommended: false,
+  },
+] as const
+
+export const aiModels = [
+  ...localAiModels.map((model) => ({ ...model, provider: 'local' as const })),
+  ...cloudflareAiModels,
+] as const
+
 export type LocalAiModel = (typeof localAiModels)[number]
 export type LocalAiModelId = LocalAiModel['id']
+export type CloudflareAiModel = (typeof cloudflareAiModels)[number]
+export type CloudflareAiModelId = CloudflareAiModel['id']
+export type AiModel = (typeof aiModels)[number]
+export type AiModelId = AiModel['id']
 
 export const defaultLocalAiModelId: LocalAiModelId = localAiModels[0].id
+export const defaultAiModelId: AiModelId = defaultLocalAiModelId
+export const cloudflareAiModelId: CloudflareAiModelId =
+  cloudflareAiModels[0].id
 
 const localAiModelIds = new Set<string>(
   localAiModels.map(({ id }) => id),
 )
+const cloudflareAiModelIds = new Set<string>(
+  cloudflareAiModels.map(({ id }) => id),
+)
+const aiModelIds = new Set<string>(aiModels.map(({ id }) => id))
 
 export function isLocalAiModelId(value: string): value is LocalAiModelId {
   return localAiModelIds.has(value)
+}
+
+export function isCloudflareAiModelId(
+  value: string,
+): value is CloudflareAiModelId {
+  return cloudflareAiModelIds.has(value)
+}
+
+export function isAiModelId(value: string): value is AiModelId {
+  return aiModelIds.has(value)
 }

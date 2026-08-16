@@ -3,8 +3,11 @@ import { isContentLocale } from '#lib/content-types.ts'
 import { defaultLocale } from '#i18n/ui.ts'
 import { useTranslations } from '#i18n/utils.ts'
 import {
-  defaultLocalAiModelId,
+  defaultAiModelId,
+  isAiModelId,
+  isCloudflareAiModelId,
   isLocalAiModelId,
+  type AiModelId,
   type LocalAiModelId,
 } from '#data/ai-models.ts'
 import { createAiPersistence } from '#state/ai-persistence.ts'
@@ -42,7 +45,7 @@ export interface AiConversation {
   id: string
   title: string
   draft: string
-  modelId: LocalAiModelId | null
+  modelId: AiModelId | null
   questions: AiQuestion[]
   createdAt: number
   updatedAt: number
@@ -55,6 +58,13 @@ export interface AiRequestDetail {
 }
 
 export type AiPersistenceState = 'loading' | 'ready' | 'unavailable'
+export type CloudflareAiState =
+  | 'unknown'
+  | 'checking'
+  | 'available'
+  | 'low'
+  | 'exhausted'
+  | 'unavailable'
 
 interface AiSnapshotV1 {
   schemaVersion: 1
@@ -76,8 +86,11 @@ export interface AiStore {
   persistenceState: AiPersistenceState
   activeConversationId: string | null
   activeConversationCreatedAt: number | null
-  selectedModelId: LocalAiModelId | null
-  modelChoiceId: LocalAiModelId
+  selectedModelId: AiModelId | null
+  modelChoiceId: AiModelId
+  cloudflareState: CloudflareAiState
+  cloudflareRemaining: number | null
+  cloudflareResetAt: string | null
   awaitingModelQuestionId: string | null
   questions: AiQuestion[]
   conversations: AiConversation[]
@@ -127,6 +140,7 @@ declare global {
   interface WindowEventMap {
     'go-slim:ai-request': CustomEvent<AiRequestDetail>
     'go-slim:ai-stop': CustomEvent<{ questionId: string | null }>
+    'go-slim:ai-model-status-request': CustomEvent<void>
   }
 }
 
@@ -317,7 +331,7 @@ const parseConversation = (
       })
     : []
   const modelId =
-    typeof value.modelId === 'string' && isLocalAiModelId(value.modelId)
+    typeof value.modelId === 'string' && isAiModelId(value.modelId)
       ? value.modelId
       : null
   const draft =
@@ -388,10 +402,10 @@ const parseSnapshot = (
 const desktopPanelMedia = window.matchMedia('(min-width: 64rem)')
 const modelStorageKey = 'go-slim-ai-model'
 
-const getStoredModelId = (): LocalAiModelId | null => {
+const getStoredModelId = (): AiModelId | null => {
   try {
     const value = localStorage.getItem(modelStorageKey)
-    return value !== null && isLocalAiModelId(value) ? value : null
+    return value !== null && isAiModelId(value) ? value : null
   } catch {
     return null
   }
@@ -569,7 +583,10 @@ export const createAiStore = (
     // A model is active only for the current conversation. The stored value is
     // merely the default choice shown when a new conversation asks for consent.
     selectedModelId: null,
-    modelChoiceId: getStoredModelId() ?? defaultLocalAiModelId,
+    modelChoiceId: getStoredModelId() ?? defaultAiModelId,
+    cloudflareState: 'unknown',
+    cloudflareRemaining: null,
+    cloudflareResetAt: null,
     awaitingModelQuestionId: null,
     questions: [],
     conversations: [],
@@ -771,13 +788,25 @@ export const createAiStore = (
         this.generating ||
         this.awaitingModelQuestionId !== null ||
         this.persistenceState === 'loading' ||
-        !isLocalAiModelId(modelId)
+        !isAiModelId(modelId)
       ) {
         return
       }
       if (this.selectedModelId === modelId) return
+      if (
+        isCloudflareAiModelId(modelId) &&
+        (this.cloudflareState === 'exhausted' ||
+          this.cloudflareState === 'unavailable')
+      ) {
+        return
+      }
 
       this.selectedModelId = modelId
+      try {
+        localStorage.setItem(modelStorageKey, modelId)
+      } catch {
+        // The selected model remains active for this page session.
+      }
       this.schedulePersistence(true)
     },
 
@@ -796,8 +825,15 @@ export const createAiStore = (
       if (question === undefined) return
 
       const modelId = this.modelChoiceId
-      if (!isLocalAiModelId(modelId)) {
-        this.modelChoiceId = defaultLocalAiModelId
+      if (!isAiModelId(modelId)) {
+        this.modelChoiceId = defaultAiModelId
+        return
+      }
+      if (
+        isCloudflareAiModelId(modelId) &&
+        (this.cloudflareState === 'exhausted' ||
+          this.cloudflareState === 'unavailable')
+      ) {
         return
       }
       this.selectedModelId = modelId
@@ -817,7 +853,9 @@ export const createAiStore = (
           detail: {
             questionId,
             message: question.message,
-            downloadApprovedModelId: modelId,
+            downloadApprovedModelId: isLocalAiModelId(modelId)
+              ? modelId
+              : undefined,
           },
         }),
       )
@@ -878,7 +916,7 @@ export const createAiStore = (
       this.questions = target.questions.map(cloneQuestion)
       this.selectedModelId = target.modelId
       this.modelChoiceId =
-        target.modelId ?? getStoredModelId() ?? defaultLocalAiModelId
+        target.modelId ?? getStoredModelId() ?? defaultAiModelId
       this.schedulePersistence(true)
       window.requestAnimationFrame(() => {
         window.dispatchEvent(new Event('go-slim-composer-focus'))

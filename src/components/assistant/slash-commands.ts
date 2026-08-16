@@ -1,5 +1,5 @@
 import type { AlpineComponent } from 'alpinejs'
-import type { LocalAiModelId } from '#data/ai-models.ts'
+import type { AiModelId } from '#data/ai-models.ts'
 
 export type AssistantSlashCommand = 'new' | 'model' | 'sessions' | 'help'
 type SlashSurface = 'commands' | 'models' | 'sessions' | 'help' | null
@@ -11,7 +11,8 @@ export interface SlashCommandDefinition {
 }
 
 export interface SlashModelDefinition {
-  id: LocalAiModelId
+  id: AiModelId
+  provider: 'local' | 'cloudflare'
   label: string
   meta: string
   recommended: boolean
@@ -23,12 +24,18 @@ export interface SlashCommandsOptions {
   labels: {
     commands: string
     models: string
+    modelDescription: string
     sessions: string
     help: string
     helpHint: string
     deleteSession: string
     noCommands: string
     noSessions: string
+    cloudflareChecking: string
+    cloudflareAvailable: string
+    cloudflareLow: string
+    cloudflareExhausted: string
+    cloudflareUnavailable: string
   }
 }
 
@@ -59,6 +66,8 @@ export interface SlashCommandsComponent {
   selectModel(index: number): void
   selectSession(index: number): void
   removeSession(conversationId: string, index: number): void
+  modelDisabled(model: SlashModelDefinition): boolean
+  modelMeta(model: SlashModelDefinition): string
   commandDisabled(command: AssistantSlashCommand): boolean
   closeSurface(dismiss?: boolean): void
   focusComposer(): void
@@ -293,6 +302,7 @@ export const slashCommands = (
       return
     }
     if (command === 'model') {
+      window.dispatchEvent(new CustomEvent('go-slim:ai-model-status-request'))
       this.surface = 'models'
       const selectedIndex = this.options.models.findIndex(
         ({ id }) => id === this.$store.ai.selectedModelId,
@@ -362,7 +372,13 @@ export const slashCommands = (
 
   selectModel(index) {
     const model = this.options.models[index]
-    if (model === undefined || this.commandDisabled('model')) return
+    if (
+      model === undefined ||
+      this.commandDisabled('model') ||
+      this.modelDisabled(model)
+    ) {
+      return
+    }
     this.$store.ai.switchConversationModel(model.id)
     this.closeSurface(false)
     this.focusComposer()
@@ -383,6 +399,34 @@ export const slashCommands = (
     this.syncTextboxA11y()
 
     void this.$nextTick(() => this.focusSession(this.activeIndex))
+  },
+
+  modelDisabled(model) {
+    return model.provider === 'cloudflare' &&
+      (this.$store.ai.cloudflareState === 'exhausted' ||
+        this.$store.ai.cloudflareState === 'unavailable')
+  },
+
+  modelMeta(model) {
+    if (model.provider !== 'cloudflare') return model.meta
+
+    const status = (() => {
+      switch (this.$store.ai.cloudflareState) {
+        case 'checking':
+          return this.options.labels.cloudflareChecking
+        case 'available':
+          return this.options.labels.cloudflareAvailable
+        case 'low':
+          return this.options.labels.cloudflareLow
+        case 'exhausted':
+          return this.options.labels.cloudflareExhausted
+        case 'unavailable':
+          return this.options.labels.cloudflareUnavailable
+        default:
+          return ''
+      }
+    })()
+    return status === '' ? model.meta : `${model.meta} · ${status}`
   },
 
   commandDisabled(command) {

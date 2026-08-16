@@ -209,12 +209,23 @@ const enUS = defineDefaultMessages({
   'assistant.modelPickerPlaceholder': 'Select model',
   'assistant.modelPickerTitle': 'Model for this conversation',
   'assistant.modelPickerDescription':
-    'Changing the model affects the next response. A model is downloaded only after you explicitly confirm it.',
+    'Changing the model affects the next response. Local models run on this device; the cloud model sends the conversation context and retrieved documentation to Cloudflare.',
   'assistant.modelDownloadTitle': 'Choose a model for this conversation',
   'assistant.modelDownloadDescription':
-    'Each new conversation asks you to confirm a model. If the selected model is not cached, choosing Use this model downloads it from a third-party model distribution through WebLLM and caches it in this browser. Larger models can produce better answers but need more network data, storage, and memory.',
+    'Choose an on-device WebGPU model or Cloudflare AI. Local models may require a large first download; the cloud model does not download model weights to this browser.',
   'assistant.modelDownloadPrivacy':
     'Your question and the retrieved documentation are processed on this device and are not sent to a third-party model service.',
+  'assistant.cloudflareProfile': 'Cloud inference · No browser download',
+  'assistant.cloudflarePrivacy':
+    'Your question, recent conversation context, and retrieved documentation are sent to Cloudflare for inference.',
+  'assistant.cloudflareChecking': 'Checking cloud availability…',
+  'assistant.cloudflareAvailable': 'Cloud service available',
+  'assistant.cloudflareLow': 'Daily cloud budget is low',
+  'assistant.cloudflareExhausted': 'Daily cloud budget is exhausted',
+  'assistant.cloudflareUnavailable': 'Cloud service unavailable',
+  'assistant.cloudflarePreparing': 'Connecting to Cloudflare AI…',
+  'assistant.cloudflareGenerationError':
+    'Cloudflare AI could not generate an answer. Try again or choose a local model.',
   'assistant.modelRecommended': 'Recommended',
   'assistant.modelHighMemory': 'High-memory device',
   'assistant.modelFirstDownload': 'First download',
@@ -222,7 +233,7 @@ const enUS = defineDefaultMessages({
   'assistant.modelDownloadAction': 'Use this model',
   'assistant.modelNotNow': 'Not now',
   'assistant.modelSelectionDeclined':
-    'No local model was selected for this conversation.',
+    'No model was selected for this conversation.',
   'assistant.answering': 'The assistant is writing a response.',
   'assistant.answerComplete': 'The assistant response is complete.',
   'assistant.jumpToLatest': 'Jump to latest reply',
@@ -441,19 +452,30 @@ const zhHans = defineLocalizedMessages(enUS, {
   'assistant.modelPickerPlaceholder': '选择模型',
   'assistant.modelPickerTitle': '当前会话模型',
   'assistant.modelPickerDescription':
-    '更换模型会影响下一次回复；只有在你明确确认后才会下载模型。',
-  'assistant.modelDownloadTitle': '为当前会话选择本地模型',
+    '更换模型会影响下一次回复。本地模型在当前设备运行；云端模型会将会话上下文和检索到的文档发送到 Cloudflare。',
+  'assistant.modelDownloadTitle': '为当前会话选择模型',
   'assistant.modelDownloadDescription':
-    '每个新会话都需要重新确认模型。如果所选模型尚未缓存，点击“使用此模型”后，WebLLM 才会从第三方模型分发源下载并缓存在当前浏览器中。模型越大，回答质量通常越好，但会占用更多网络流量、存储空间和内存。',
+    '可以选择设备端 WebGPU 模型或 Cloudflare AI。本地模型首次使用时可能需要下载较大的模型文件；云端模型不会向浏览器下载模型权重。',
   'assistant.modelDownloadPrivacy':
     '你的问题与检索到的文档只在当前设备中处理，不会发送到第三方模型服务。',
+  'assistant.cloudflareProfile': '云端推理 · 浏览器无需下载',
+  'assistant.cloudflarePrivacy':
+    '你的问题、最近的会话上下文和检索到的文档会发送到 Cloudflare 进行推理。',
+  'assistant.cloudflareChecking': '正在检查云端服务…',
+  'assistant.cloudflareAvailable': '云端服务可用',
+  'assistant.cloudflareLow': '今日云端预算所剩不多',
+  'assistant.cloudflareExhausted': '今日云端预算已用尽',
+  'assistant.cloudflareUnavailable': '云端服务暂时不可用',
+  'assistant.cloudflarePreparing': '正在连接 Cloudflare AI…',
+  'assistant.cloudflareGenerationError':
+    'Cloudflare AI 无法生成回答，请重试或选择本地模型。',
   'assistant.modelRecommended': '推荐',
   'assistant.modelHighMemory': '高内存设备',
   'assistant.modelFirstDownload': '首次下载',
   'assistant.modelGpuMemory': '显存占用',
   'assistant.modelDownloadAction': '使用此模型',
-  'assistant.modelNotNow': '暂不下载',
-  'assistant.modelSelectionDeclined': '未为当前会话选择本地模型。',
+  'assistant.modelNotNow': '暂不选择',
+  'assistant.modelSelectionDeclined': '未为当前会话选择模型。',
   'assistant.answering': '助手正在生成回复。',
   'assistant.answerComplete': '助手回复已完成。',
   'assistant.jumpToLatest': '跳到最新回复',

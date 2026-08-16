@@ -1,6 +1,6 @@
 ---
 import { Icon } from 'astro-icon/components'
-import { localAiModels } from '#data/ai-models.ts'
+import { aiModels } from '#data/ai-models.ts'
 import type { ContentLocale } from '#lib/content-types.ts'
 import { useTranslations } from '#i18n/utils.ts'
 
@@ -32,10 +32,13 @@ const commands = [
     description: t('assistant.commands.helpDescription'),
   },
 ] as const
-const models = localAiModels.map((model) => ({
+const models = aiModels.map((model) => ({
   id: model.id,
+  provider: model.provider,
   label: model.label,
-  meta: `${model.downloadSize} · ${model.gpuMemory} ${t('assistant.modelGpuMemory')}`,
+  meta: model.provider === 'local'
+    ? `${model.downloadSize} · ${model.gpuMemory} ${t('assistant.modelGpuMemory')}`
+    : t('assistant.cloudflareProfile'),
   recommended: model.recommended,
 }))
 const data = `slashCommands(${JSON.stringify({
@@ -44,12 +47,18 @@ const data = `slashCommands(${JSON.stringify({
   labels: {
     commands: t('assistant.commands.label'),
     models: t('assistant.modelPickerTitle'),
+    modelDescription: t('assistant.modelPickerDescription'),
     sessions: t('assistant.history'),
     help: t('assistant.commands.help'),
     helpHint: t('assistant.commands.hint'),
     deleteSession: t('assistant.deleteConversation'),
     noCommands: t('assistant.commands.noMatches'),
     noSessions: t('assistant.commands.noSessions'),
+    cloudflareChecking: t('assistant.cloudflareChecking'),
+    cloudflareAvailable: t('assistant.cloudflareAvailable'),
+    cloudflareLow: t('assistant.cloudflareLow'),
+    cloudflareExhausted: t('assistant.cloudflareExhausted'),
+    cloudflareUnavailable: t('assistant.cloudflareUnavailable'),
   },
 })})`
 ---
@@ -128,20 +137,36 @@ const data = `slashCommands(${JSON.stringify({
 
       <template x-if="surface === 'models'">
         <div>
+          <p
+            class="px-3 pb-2 text-xs leading-relaxed text-muted-foreground"
+            x-text="options.labels.modelDescription"
+          ></p>
           <template x-for="(model, index) in options.models" :key="model.id">
             <div
               :id="`assistant-slash-option-${index}`"
               role="option"
               :aria-selected="activeIndex === index"
-              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 aria-selected:bg-muted"
+              :aria-disabled="modelDisabled(model)"
+              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 aria-selected:bg-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
               @mouseenter="activeIndex = index; syncTextboxA11y()"
               @mousedown.prevent
               @click="selectModel(index)"
             >
-              <Icon name="tabler:cpu" class="size-4 shrink-0" aria-hidden="true" />
+              <Icon
+                name="tabler:cpu"
+                class="size-4 shrink-0"
+                x-show="model.provider === 'local'"
+                aria-hidden="true"
+              />
+              <Icon
+                name="tabler:cloud-computing"
+                class="size-4 shrink-0"
+                x-show="model.provider === 'cloudflare'"
+                aria-hidden="true"
+              />
               <span class="min-w-0 flex-1">
                 <strong class="block truncate text-sm" x-text="model.label"></strong>
-                <span class="block text-xs text-muted-foreground" x-text="model.meta"></span>
+                <span class="block text-xs text-muted-foreground" x-text="modelMeta(model)"></span>
               </span>
               <Icon
                 name="tabler:check"

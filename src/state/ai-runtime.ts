@@ -9,12 +9,21 @@ import {
   retrieveAiSources,
   sourcesAsContext,
 } from '../components/assistant/ai-retrieval.ts'
+import {
+  CloudflareAiClient,
+  CloudflareAiError,
+  type CloudflareAiBudgetStatus,
+} from '../components/assistant/cloudflare-ai.ts'
 import { supportsWebGpu } from '../components/assistant/webgpu.ts'
 import { defaultLocale } from '#i18n/ui.ts'
 import { useTranslations, type Translate } from '#i18n/utils.ts'
 import { isContentLocale, type ContentLocale } from '#lib/content-types.ts'
 import type { AiRequestDetail, AiSourceReference, AiStore } from './ai.ts'
-import type { LocalAiModelId } from '#data/ai-models.ts'
+import {
+  isCloudflareAiModelId,
+  isLocalAiModelId,
+  type LocalAiModelId,
+} from '#data/ai-models.ts'
 
 const systemPrompts: Record<ContentLocale, string> = {
   'en-US': [
@@ -449,8 +458,10 @@ class LocalModelBridge {
 }
 
 class AiRuntime {
-  private readonly bridge = new LocalModelBridge()
+  private readonly localBridge = new LocalModelBridge()
+  private readonly cloudflare = new CloudflareAiClient()
   private readonly controller = new AbortController()
+  private cloudflareStatusRequest: Promise<CloudflareAiBudgetStatus> | null = null
   private run = 0
   private current: { questionId: string; replyId: string } | null = null
 
@@ -470,15 +481,58 @@ class AiRuntime {
       { signal: this.controller.signal },
     )
     window.addEventListener(
+      'go-slim:ai-model-status-request',
+      () => void this.refreshCloudflareStatus(),
+      { signal: this.controller.signal },
+    )
+    window.addEventListener(
       'pagehide',
-      () => this.releaseModel(),
+      () => this.releaseRuntime(),
       { signal: this.controller.signal },
     )
   }
 
   destroy(): void {
     this.controller.abort()
-    this.releaseModel()
+    this.releaseRuntime()
+  }
+
+  private applyCloudflareStatus(status: CloudflareAiBudgetStatus): void {
+    this.store.cloudflareRemaining = status.remaining
+    this.store.cloudflareResetAt = status.resetAt
+    this.store.cloudflareState =
+      !status.available || status.level === 'exhausted'
+        ? 'exhausted'
+        : status.level === 'low'
+          ? 'low'
+          : 'available'
+  }
+
+  private async refreshCloudflareStatus(): Promise<CloudflareAiBudgetStatus | null> {
+    if (this.cloudflareStatusRequest !== null) {
+      return this.cloudflareStatusRequest.catch(() => null)
+    }
+
+    this.store.cloudflareState = 'checking'
+    const request = this.cloudflare.getStatus(this.controller.signal)
+    this.cloudflareStatusRequest = request
+    try {
+      const status = await request
+      this.applyCloudflareStatus(status)
+      return status
+    } catch (error) {
+      if (!this.controller.signal.aborted) {
+        this.store.cloudflareState = 'unavailable'
+        this.store.cloudflareRemaining = null
+        this.store.cloudflareResetAt = null
+        console.warn('Unable to read the Cloudflare AI status.', error)
+      }
+      return null
+    } finally {
+      if (this.cloudflareStatusRequest === request) {
+        this.cloudflareStatusRequest = null
+      }
+    }
   }
 
   private async request(detail: AiRequestDetail): Promise<void> {
@@ -501,10 +555,7 @@ class AiRuntime {
     let receivedContent = false
 
     try {
-      const [sources, webGpu] = await Promise.all([
-        retrieveAiSources(detail.message, this.locale),
-        supportsWebGpu(),
-      ])
+      const sources = await retrieveAiSources(detail.message, this.locale)
       if (run !== this.run) return
       sourceReferences = sources.map(({ url, title, section }) => ({
         url,
@@ -519,31 +570,8 @@ class AiRuntime {
         this.store.announcement = this.t('assistant.noSources')
         return
       }
-      if (!webGpu) {
-        this.store.updateReply(detail.questionId, replyId, {
-          content: this.t('assistant.webGpuUnavailable'),
-          status: 'error',
-          sources: sourceReferences,
-        })
-        this.store.announcement = this.t('assistant.webGpuUnavailable')
-        return
-      }
-
       const modelId = this.store.selectedModelId
-      const downloadApproved =
-        modelId !== null && detail.downloadApprovedModelId === modelId
-      let modelCached = false
-      if (modelId !== null && !downloadApproved) {
-        try {
-          modelCached = await this.bridge.hasCachedModel(modelId)
-        } catch (error) {
-          if (run !== this.run) return
-          console.warn('Unable to inspect the local model cache.', error)
-        }
-        if (run !== this.run) return
-      }
-
-      if (modelId === null || (!downloadApproved && !modelCached)) {
+      if (modelId === null) {
         this.store.updateReply(detail.questionId, replyId, {
           content: '',
           status: 'model-selection',
@@ -551,23 +579,108 @@ class AiRuntime {
         })
         this.store.requireModelSelection(detail.questionId)
         this.store.announcement = this.t('assistant.modelDownloadTitle')
+        void this.refreshCloudflareStatus()
         return
       }
 
-      this.store.updateReply(detail.questionId, replyId, {
-        content: this.t('assistant.modelPreparing'),
-        status: 'thinking',
-      })
-      this.store.announcement = this.t('assistant.modelPreparing')
-      await this.bridge.ensureReady(modelId, (progress) => {
+      let generate: (
+        messages: readonly LlmMessage[],
+        onDelta: (content: string) => void,
+      ) => Promise<void>
+      let cloudflareModel = false
+
+      if (isCloudflareAiModelId(modelId)) {
+        cloudflareModel = true
+        const status = await this.refreshCloudflareStatus()
         if (run !== this.run) return
+        if (status === null) {
+          this.store.updateReply(detail.questionId, replyId, {
+            content: this.t('assistant.cloudflareUnavailable'),
+            status: 'error',
+            sources: sourceReferences,
+          })
+          this.store.announcement = this.t('assistant.cloudflareUnavailable')
+          return
+        }
+        if (!status.available || status.level === 'exhausted') {
+          this.store.updateReply(detail.questionId, replyId, {
+            content: this.t('assistant.cloudflareExhausted'),
+            status: 'error',
+            sources: sourceReferences,
+          })
+          this.store.announcement = this.t('assistant.cloudflareExhausted')
+          return
+        }
         this.store.updateReply(detail.questionId, replyId, {
-          content: this.t('assistant.modelProgress', {
-            progress: Math.max(0, Math.min(100, Math.round(progress * 100))),
-          }),
+          content: this.t('assistant.cloudflarePreparing'),
+          status: 'thinking',
         })
-      })
-      if (run !== this.run) return
+        this.store.announcement = this.t('assistant.cloudflarePreparing')
+        generate = (messages, onDelta) =>
+          this.cloudflare.generate(messages, onDelta)
+      } else if (isLocalAiModelId(modelId)) {
+        const webGpu = await supportsWebGpu()
+        if (run !== this.run) return
+        if (!webGpu) {
+          this.store.updateReply(detail.questionId, replyId, {
+            content: this.t('assistant.webGpuUnavailable'),
+            status: 'error',
+            sources: sourceReferences,
+          })
+          this.store.announcement = this.t('assistant.webGpuUnavailable')
+          return
+        }
+
+        const downloadApproved = detail.downloadApprovedModelId === modelId
+        let modelCached = false
+        if (!downloadApproved) {
+          try {
+            modelCached = await this.localBridge.hasCachedModel(modelId)
+          } catch (error) {
+            if (run !== this.run) return
+            console.warn('Unable to inspect the local model cache.', error)
+          }
+          if (run !== this.run) return
+        }
+
+        if (!downloadApproved && !modelCached) {
+          this.store.updateReply(detail.questionId, replyId, {
+            content: '',
+            status: 'model-selection',
+            sources: sourceReferences,
+          })
+          this.store.requireModelSelection(detail.questionId)
+          this.store.announcement = this.t('assistant.modelDownloadTitle')
+          void this.refreshCloudflareStatus()
+          return
+        }
+
+        this.store.updateReply(detail.questionId, replyId, {
+          content: this.t('assistant.modelPreparing'),
+          status: 'thinking',
+        })
+        this.store.announcement = this.t('assistant.modelPreparing')
+        await this.localBridge.ensureReady(modelId, (progress) => {
+          if (run !== this.run) return
+          this.store.updateReply(detail.questionId, replyId, {
+            content: this.t('assistant.modelProgress', {
+              progress: Math.max(0, Math.min(100, Math.round(progress * 100))),
+            }),
+          })
+        })
+        if (run !== this.run) return
+        generate = (messages, onDelta) =>
+          this.localBridge.generate([...messages], onDelta)
+      } else {
+        this.store.selectedModelId = null
+        this.store.updateReply(detail.questionId, replyId, {
+          content: '',
+          status: 'model-selection',
+          sources: sourceReferences,
+        })
+        this.store.requireModelSelection(detail.questionId)
+        return
+      }
 
       this.store.updateReply(detail.questionId, replyId, {
         content: '',
@@ -598,7 +711,7 @@ class AiRuntime {
           ].join('\n'),
         },
       ]
-      await this.bridge.generate(messages, (content) => {
+      await generate(messages, (content) => {
         if (run !== this.run) return
         receivedContent ||= content !== ''
         this.store.appendReply(detail.questionId, replyId, content)
@@ -617,7 +730,7 @@ class AiRuntime {
           content: '',
           status: 'streaming',
         })
-        await this.bridge.generate(
+        await generate(
           [
             ...messages,
             {
@@ -651,15 +764,47 @@ class AiRuntime {
         this.store.announcement = this.t('assistant.answerComplete')
       } else {
         this.store.updateReply(detail.questionId, replyId, {
-          content: this.t('assistant.generationError'),
+          content: this.t(
+            cloudflareModel
+              ? 'assistant.cloudflareGenerationError'
+              : 'assistant.generationError',
+          ),
           status: 'error',
           sources: sourceReferences,
         })
-        this.store.announcement = this.t('assistant.generationError')
+        this.store.announcement = this.t(
+          cloudflareModel
+            ? 'assistant.cloudflareGenerationError'
+            : 'assistant.generationError',
+        )
       }
     } catch (error) {
       if (run !== this.run) return
-      console.error('Local AI generation failed.', error)
+      console.error('AI generation failed.', error)
+      const cloudflareModel = isCloudflareAiModelId(
+        this.store.selectedModelId ?? '',
+      )
+      if (error instanceof CloudflareAiError) {
+        if (
+          error.status === 429 ||
+          error.code === 'AI_DAILY_BUDGET_EXHAUSTED'
+        ) {
+          this.store.cloudflareState = 'exhausted'
+          this.store.cloudflareRemaining = 0
+          if (typeof error.budget?.resetAt === 'string') {
+            this.store.cloudflareResetAt = error.budget.resetAt
+          }
+        } else {
+          this.store.cloudflareState = 'unavailable'
+        }
+      }
+      const errorMessage = this.t(
+        cloudflareModel
+          ? this.store.cloudflareState === 'exhausted'
+            ? 'assistant.cloudflareExhausted'
+            : 'assistant.cloudflareGenerationError'
+          : 'assistant.generationError',
+      )
       const reply = this.store.questions
         .find(({ id }) => id === detail.questionId)
         ?.replies.find(({ id }) => id === replyId)
@@ -671,12 +816,12 @@ class AiRuntime {
         hasPartialReply
           ? { status: 'error', sources: sourceReferences }
           : {
-              content: this.t('assistant.generationError'),
+              content: errorMessage,
               status: 'error',
               sources: sourceReferences,
             },
       )
-      this.store.announcement = this.t('assistant.generationError')
+      this.store.announcement = errorMessage
     } finally {
       if (run === this.run) {
         this.store.finishGeneration(detail.questionId)
@@ -690,7 +835,8 @@ class AiRuntime {
     if (current === null) return
 
     this.run += 1
-    this.bridge.cancel()
+    this.localBridge.cancel()
+    this.cloudflare.cancel()
     const reply = this.store.questions
       .find(({ id }) => id === current.questionId)
       ?.replies.find(({ id }) => id === current.replyId)
@@ -708,9 +854,10 @@ class AiRuntime {
     this.current = null
   }
 
-  private releaseModel(): void {
+  private releaseRuntime(): void {
     this.run += 1
-    this.bridge.destroy()
+    this.localBridge.destroy()
+    this.cloudflare.cancel()
     if (this.current === null) return
 
     this.store.finishGeneration(this.current.questionId)

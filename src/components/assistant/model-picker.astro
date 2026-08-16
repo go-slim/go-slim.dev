@@ -2,7 +2,7 @@
 import type { HTMLAttributes } from 'astro/types'
 import { Icon } from 'astro-icon/components'
 import Button from '#components/ui/button/index.astro'
-import { localAiModels } from '#data/ai-models.ts'
+import { aiModels } from '#data/ai-models.ts'
 import type { ContentLocale } from '#lib/content-types.ts'
 import { useTranslations } from '#i18n/utils.ts'
 
@@ -14,7 +14,7 @@ type Props = {
 const { locale, class: className } = Astro.props
 const t = useTranslations(locale)
 const labels = Object.fromEntries(
-  localAiModels.map(({ id, label }) => [id, label]),
+  aiModels.map(({ id, label }) => [id, label]),
 )
 const pickerData = `{
   open: false,
@@ -29,6 +29,7 @@ const pickerData = `{
   },
   openPicker() {
     if (this.disabled) return
+    window.dispatchEvent(new CustomEvent('go-slim:ai-model-status-request'))
     this.open = true
     $nextTick(() => {
       const selected = $refs.options.querySelector('input:checked')
@@ -52,7 +53,7 @@ const pickerData = `{
   x-data={pickerData}
   x-id="['assistant-model-trigger', 'assistant-model-options']"
   x-effect="if (disabled && open) closePicker()"
-  @keydown.escape.stop.prevent="if (open) closePicker(true)"
+  @keydown.escape="if (open) { $event.stopPropagation(); $event.preventDefault(); closePicker(true) }"
 >
   <Button
     x-ref="trigger"
@@ -94,15 +95,23 @@ const pickerData = `{
         {t('assistant.modelPickerDescription')}
       </p>
       <div class="mt-3 grid gap-1">
-        {localAiModels.map((model) => (
-          <label class="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-muted has-focus-visible:ring-3 has-focus-visible:ring-outline/50">
+        {aiModels.map((model) => (
+          <label class="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-muted has-focus-visible:ring-3 has-focus-visible:ring-outline/50 has-disabled:cursor-not-allowed has-disabled:opacity-50">
             <input
               type="radio"
               :name="$id('assistant-model-options')"
               value={model.id}
+              :disabled={model.provider === 'cloudflare'
+                ? "$store.ai.cloudflareState === 'exhausted' || $store.ai.cloudflareState === 'unavailable'"
+                : undefined}
               :checked={`$store.ai.selectedModelId === ${JSON.stringify(model.id)}`}
               class="peer sr-only"
               @change={`choose(${JSON.stringify(model.id)})`}
+            />
+            <Icon
+              name={model.provider === 'local' ? 'tabler:cpu' : 'tabler:cloud-computing'}
+              class="size-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
             />
             <span class="min-w-0 flex-1">
               <span class="flex flex-wrap items-center gap-2">
@@ -113,11 +122,17 @@ const pickerData = `{
                   </span>
                 )}
               </span>
-              <span class="mt-0.5 block text-xs text-muted-foreground">
-                {model.downloadSize}
-                <span aria-hidden="true"> · </span>
-                {model.gpuMemory} {t('assistant.modelGpuMemory')}
-              </span>
+              {model.provider === 'local' ? (
+                <span class="mt-0.5 block text-xs text-muted-foreground">
+                  {model.downloadSize}
+                  <span aria-hidden="true"> · </span>
+                  {model.gpuMemory} {t('assistant.modelGpuMemory')}
+                </span>
+              ) : (
+                <span class="mt-0.5 block text-xs text-muted-foreground">
+                  {t('assistant.cloudflareProfile')}
+                </span>
+              )}
             </span>
             <Icon
               name="tabler:check"
