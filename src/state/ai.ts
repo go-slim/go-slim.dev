@@ -401,6 +401,23 @@ const parseSnapshot = (
 
 const desktopPanelMedia = window.matchMedia('(min-width: 64rem)')
 const modelStorageKey = 'go-slim-ai-model'
+const panelStorageKey = 'go-slim-ai-panel-open'
+
+const getStoredPanelOpen = (): boolean => {
+  try {
+    return localStorage.getItem(panelStorageKey) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const storePanelOpen = (open: boolean): void => {
+  try {
+    localStorage.setItem(panelStorageKey, String(open))
+  } catch {
+    // The panel still works for this page when storage is unavailable.
+  }
+}
 
 const getStoredModelId = (): AiModelId | null => {
   try {
@@ -571,7 +588,7 @@ export const createAiStore = (
   }
 
   store = {
-    panelOpen: false,
+    panelOpen: getStoredPanelOpen(),
     generating: false,
     activeQuestionId: null,
     announcement: '',
@@ -648,14 +665,17 @@ export const createAiStore = (
 
     openPanel() {
       this.panelOpen = true
+      storePanelOpen(true)
     },
 
     closePanel() {
       this.panelOpen = false
+      storePanelOpen(false)
     },
 
     togglePanel() {
       this.panelOpen = !this.panelOpen
+      storePanelOpen(this.panelOpen)
     },
 
     submit() {
