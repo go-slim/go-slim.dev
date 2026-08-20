@@ -36,9 +36,9 @@ const pageData = `searchPage(${JSON.stringify({
 <main
   x-data={pageData}
   data-pagefind-ignore
-  class="mx-auto w-full max-w-page px-4 py-12 @[48rem]/app:px-6 @[64rem]/app:px-8 @[64rem]/app:py-18"
+  class="mx-auto w-full min-w-0 max-w-4xl px-4 py-12 @[48rem]/app:px-6 @[64rem]/app:px-8 @[64rem]/app:py-18"
 >
-  <header class="max-w-3xl">
+  <header class="min-w-0 max-w-3xl">
     <h1 class="text-4xl font-semibold tracking-display">
       {t('search.pageHeading')}
     </h1>
@@ -61,7 +61,7 @@ const pageData = `searchPage(${JSON.stringify({
     </form>
   </header>
 
-  <section class="relative mt-10 min-h-80" aria-label={t('search.regionLabel')}>
+  <section class="relative mt-10 min-h-80 min-w-0" aria-label={t('search.regionLabel')}>
     <Feedback locale={locale} type="no-query" x-show="status === 'idle'" />
     <Feedback locale={locale} type="loading" x-show="status === 'loading'" x-cloak />
     <Feedback locale={locale} type="no-results" x-show="status === 'empty'" x-cloak />
@@ -77,14 +77,14 @@ const pageData = `searchPage(${JSON.stringify({
 
       <ul class="space-y-10" role="list">
         <template x-for="group in groups" :key="group.id">
-          <li>
+          <li class="min-w-0">
             <h2 class="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground" x-text="group.label"></h2>
             <ul class="grid gap-2 @[48rem]/app:grid-cols-2" role="list">
               <template x-for="result in group.items" :key="result.id">
-                <li>
+                <li class="min-w-0">
                   <a
                     :href="result.url"
-                    class="group flex min-h-20 items-center rounded-lg border border-border bg-card p-3 outline-hidden transition-colors hover:border-outline focus-visible:ring-3 focus-visible:ring-outline/50"
+                    class="group flex min-h-20 min-w-0 w-full items-center rounded-lg border border-border bg-card p-3 outline-hidden transition-colors hover:border-outline focus-visible:ring-3 focus-visible:ring-outline/50"
                   >
                     <span class="flex size-11 shrink-0 items-center justify-center text-muted-foreground group-hover:text-primary">
                       <Icon name="tabler:hash" class="size-5" aria-hidden="true" />
